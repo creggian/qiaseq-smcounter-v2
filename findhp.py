@@ -1,0 +1,58 @@
+#!/usr/bin/python
+# vim: tabstop=9 expandtab shiftwidth=3 softtabstop=3
+# get homopolymer regions
+# Chang Xu. 23May2016
+# bug fix - plus 1 on start; 23JAN2018
+
+import os
+import sys
+import pysam
+from collections import defaultdict
+
+#refg = '/mnt/webserver/datadisk/varcall/frequentlyUsedFiles/ucsc.hg19.fasta'
+#refg = '/qgen/home/xuc/frequentlyUsedFiles/ucsc.hg19.fasta'
+refg = '/home/xuc/frequentlyUsedFiles/ucsc.hg19.fasta'
+
+#-------------------------------------------------------------------------------------
+# find homopolymer sequences
+#-------------------------------------------------------------------------------------
+def findhp(bedName, outName, minLength):
+   outfile = open(outName, 'w')
+   for line in open(bedName, 'r'):
+      lineList = line.strip().split('\t')
+      chrom = lineList[0]
+      start = int(lineList[1])
+      end = int(lineList[2])
+
+      # get reference base
+      refseq = pysam.FastaFile(refg)
+      origRef = refseq.fetch(reference=chrom, start=start-1-100, end=end + 100)
+      origRef = origRef.upper()
+
+      hpL = 0
+      for i in range(len(origRef))[1:]:
+         if origRef[i] == origRef[i-1]:
+            continue
+         else:
+            hpLen = i - hpL 
+            realL = hpL - 1 + start - 100
+            realR = i - 1  + start - 100
+            if hpLen >= minLength and realL <= end and realR >= start:
+               outline = '\t'.join([chrom, str(max(realL, start)), str(min(realR, end)), 'HP', str(hpLen), '1', str(hpLen), origRef[hpL]]) + '\n'
+               outfile.write(outline)
+            hpL = i 
+
+
+   outfile.close()
+
+
+#----------------------------------------------------------------------------------------------
+#pythonism to run from the command line
+#----------------------------------------------------------------------------------------------
+if __name__ == "__main__":
+   bedName = sys.argv[1]
+   outName = sys.argv[2]
+   minLength = int(sys.argv[3])
+   findhp(bedName, outName, minLength)
+
+
