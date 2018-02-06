@@ -1,36 +1,23 @@
 #!/usr/bin/python
-# vim: tabstop=9 expandtab shiftwidth=3 softtabstop=3
-# smCounter v2.4. Optionally allow somatic multi-allelic SNPs, and output all minor alleles  
-# Chang Xu, 23Oct2017 
 
+# Chang Xu, 23Oct2017
 import os
 import sys
 import datetime
 import subprocess
-import shutil
 import time
 import runLog
-import re
-import math
 import operator
-import pysam
-import multiprocessing as mp
+import multiprocessing
 from collections import defaultdict
-import argparse
-import scipy.stats
 import random
 import traceback
+
+# 3rd party modules
+import pysam
+import scipy.stats
 import statistics
 
-# on GCE
-#filePath = '/mnt/webserver/datadisk/varcall/frequentlyUsedFiles/'
-#codePath = '/mnt/webserver/datadisk/varcall/code/'
-
-# on FDKBIO04
-#filePath = '/qgen/home/xuc/frequentlyUsedFiles/'
-#codePath = '/qgen/home/xuc/VariantCallingCode/'
-
-# on FDKBIO07
 filePath = '/home/xuc/frequentlyUsedFiles/'
 codePath = '/home/xuc/VariantCallingCode/'
 
@@ -47,6 +34,10 @@ mtTag = "Bc"
 tagSeparator = "-"
 primerTag = "tr"
 
+_num_cols_ = 38 ## Number of columns in out_long returned by the vc() function of smCounter
+
+
+
 # wrapper function for "vc()" - because Python multiprocessing module does not pass stack trace
 # from runone/smcounter.py by John Dicarlo
 #------------------------------------------------------------------------------------------------
@@ -62,14 +53,9 @@ def vc_wrapper(*args):
 # set reference genome fasta and repeat BEDs
 #-------------------------------------------------------------------------------------
 def setReference(isRna):
-   if isRna:
-      refg = '/mnt/webserver/datadisk/varcall/ucsc.hg38.fasta'
-      repBed = '/mnt/webserver/datadisk/varcall/simpleRepeat.hg38.bed'
-      srBed = '/mnt/webserver/datadisk/varcall/SR_LC_SL.hg38.bed'
-   else:   
-      refg = filePath + 'ucsc.hg19.fasta'
-      repBed = filePath + 'simpleRepeat.full.bed'
-      srBed = filePath + 'SR_LC_SL.full.bed'
+   refg = filePath + 'ucsc.hg19.fasta'
+   repBed = filePath + 'simpleRepeat.full.bed'
+   srBed = filePath + 'SR_LC_SL.full.bed'
    return (refg, repBed, srBed)
    
 #-------------------------------------------------------------------------------------
@@ -200,29 +186,29 @@ def isHPorLowComp(chrom, pos, length, refb, altb, refg):
    # get reference base
    refs = pysam.FastaFile(refg)
    # ref sequence of [pos-length, pos+length] interval
-   Lseq = refs.fetch(reference=chrom, start=int(pos)-1-length, end=int(pos)-1).upper()
-   Rseq_ref = refs.fetch(reference=chrom, start=int(pos)-1+len(refb), end=int(pos)-1+len(refb)+length).upper()
+   chromLength = refg.get_reference_length(chrom)
+   pos0 = int(pos) - 1   
+   Lseq = refs.fetch(reference=chrom,start=max(0,pos0-length),end=pos0).upper()
+   Rseq_ref = refs.fetch(reference=chrom,start=pos0+len(refb),end=min(pos0+len(refb)+length,chromLength)).upper()  
+   Rseq_alt = refs.fetch(reference=chrom,start=min(pos0+len(altb),chromLength), end=min(pos0+len(altb)+length,chromLength)).upper()
    refSeq = Lseq + refb + Rseq_ref
-   # alt sequence
-   Rseq_alt = refs.fetch(reference=chrom, start=int(pos)-1+len(altb), end=int(pos)-1+len(altb)+length).upper()
    altSeq = Lseq + altb + Rseq_alt
    # check homopolymer
-   homoA = True if refSeq.find('A'*length) >= 0 or altSeq.find('A'*length) >= 0 else False
-   homoT = True if refSeq.find('T'*length) >= 0 or altSeq.find('T'*length) >= 0 else False
-   homoG = True if refSeq.find('G'*length) >= 0 or altSeq.find('G'*length) >= 0 else False
-   homoC = True if refSeq.find('C'*length) >= 0 or altSeq.find('C'*length) >= 0 else False
-   homop = True if homoA or homoT or homoG or homoC else False
+   homoA = refSeq.find('A'*length) >= 0 or altSeq.find('A'*length) >= 0
+   homoT = refSeq.find('T'*length) >= 0 or altSeq.find('T'*length) >= 0
+   homoG = refSeq.find('G'*length) >= 0 or altSeq.find('G'*length) >= 0
+   homoC = refSeq.find('C'*length) >= 0 or altSeq.find('C'*length) >= 0
+   homop = homoA or homoT or homoG or homoC
 
    # check low complexity -- window length is 2 * homopolymer region. If any 2 nucleotide >= 99% 
-   len2 = int(2 * length)
-   LseqLC = refs.fetch(reference=chrom, start=int(pos)-1-len2, end=int(pos)-1).upper()
-   # ref seq
-   Rseq_refLC = refs.fetch(reference=chrom, start=int(pos)-1+len(refb), end=int(pos)-1+len(refb)+len2).upper()
+   len2 = 2 * length
+   LseqLC = refs.fetch(reference=chrom,start=max(0,pos0-len2),end=pos0).upper()
+   Rseq_refLC = refs.fetch(reference=chrom,start=pos0+len(refb),end=min(pos0+len(refb)+len2.chromLength)).upper()
+   Rseq_altLC = refs.fetch(reference=chrom,start=min(pos0+len(altb),chromLength),end=min(pos0+len(altb)+len2,chromLength)).upper()
+   # ref seq   
    refSeqLC = LseqLC + refb + Rseq_refLC
    # alt seq
-   Rseq_altLC = refs.fetch(reference=chrom, start=int(pos)-1+len(altb), end=int(pos)-1+len(altb)+len2).upper()
    altSeqLC = LseqLC + altb + Rseq_altLC
-
    lowcomp = False
 
    # Ref seq
@@ -531,10 +517,10 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
 
    #rpb >= 3: drop all 1 read MTs;
    else:
-      bcToKeep = [bc for bc in bcDictHq.keys() if len(bcDictHq[bc]) >= 2]
+      bcToKeep = [bc for bc in bcDictHq.iterkeys() if len(bcDictHq[bc]) >= 2]
 
    if len(bcToKeep) <= minTotalUMI: 
-      out_long = '\t'.join([chrom, pos, origRef] + ['0'] * 34 + ['LM']) + '\n'
+      out_long = '\t'.join([chrom, pos, origRef] + ['0'] * (_num_cols_ - 4) + ['LM']) + '\n'
       out_bkg = ''
    else:
       for bc in bcToKeep:
@@ -608,10 +594,12 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
             vtype = 'SNP'
          elif origAlt == 'DEL':
             vtype = 'SDEL'
-         elif origAlt.split('|')[0] in ['DEL', 'INS']:
-            vtype = 'INDEL'
-            ref = origAlt.split('|')[1]
-            alt = origAlt.split('|')[2]
+         else:
+            vals = origAlt.split('|')
+            if vals[0] in ['DEL', 'INS']:
+               vtype = 'INDEL'
+               ref = vals[1]
+               alt = vals[2]
 
          # initiate values for filters
          refForPrimer = sMtConsByDirByBase[origRef]['F']
@@ -715,7 +703,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
                primerBiasOR = str(oddsRatioPB)
 
             # low base quality filter
-            if vtype == 'SNP' and alt in alleleCnt.keys() and alt in lowQReads.keys() and alleleCnt[origAlt] > 0:
+            if vtype == 'SNP' and alt in alleleCnt and alt in lowQReads and alleleCnt[origAlt] > 0:
                bqAlt =  1.0 * lowQReads[origAlt] / alleleCnt[origAlt]
                if bqAlt > 0.4 and vafToVmfRatio >= 0:
                   if lowQPredict(bqAlt, vafToVmfRatio):
@@ -814,14 +802,10 @@ def main(args):
    timeStart = datetime.datetime.now()
    print("started at " + str(timeStart))
 
-   # get reference genome and repeat BEDs
-   (refg, repBed, srBed) = setReference(args.isRna)
-
    # intersect repeats and target regions   
    subprocess.check_call('python ' + homopolymerCode + ' ' + args.bedName + ' hp.roi.bed 6', shell=True)
-   subprocess.check_call('bedtools intersect -a ' + repBed + ' -b ' + args.bedName + ' | bedtools sort -i > rep.roi.bed', shell=True)
-   #subprocess.check_call('bedtools intersect -a ' + repBed + ' -b ' + args.bedName + ' | bedtools sort -i awk -v OFS="\t" "{ print $1, $2, $3, $4, $5*$6, $5, $6, $16 }" > rep.roi.bed', shell=True)
-   subprocess.check_call('bedtools intersect -a ' + srBed +  ' -b ' + args.bedName + ' | bedtools sort -i > sr.roi.bed', shell=True)
+   subprocess.check_call('bedtools intersect -a ' + args.repBed + ' -b ' + args.bedName + ' | bedtools sort -i > rep.roi.bed', shell=True)
+   subprocess.check_call('bedtools intersect -a ' + args.srBed +  ' -b ' + args.bedName + ' | bedtools sort -i > sr.roi.bed', shell=True)
 
    # homopolymer 
    hpRegion = defaultdict(list)
@@ -935,7 +919,7 @@ def main(args):
    
    # run Python multiprocessing module
    pool = mp.Pool(processes=args.nCPU)
-   results = [pool.apply_async(vc_wrapper, args=(args.bamName, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, refg, args.minAltUMI, args.maxAltAllele)) for x in locList]
+   results = [pool.apply_async(vc_wrapper, args=(args.bamName, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, args.refg, args.minAltUMI, args.maxAltAllele)) for x in locList]
    # clear finished pool
    pool.close()
    pool.join()
@@ -1005,5 +989,8 @@ if __name__ == "__main__":
    parser.add_argument('--primerSide', type=int, default=1, help='read end that includes the primer; default is 1')
    parser.add_argument('--minAltUMI', type=int, default=3, help='minimum requirement of ALT UMIs; default is 3')
    parser.add_argument('--maxAltAllele', type=int, default=2, help='maximum ALT alleles that meet minAltUMI to be reported; default is 2 (tri-allelic variants)')
+   parser.add_argument('--refGenome',type=str,help='Path to the reference fasta file')
+   parser.add_argument('--repBed',type=str,help='Path to the simpleRepeat bed file')
+   parser.add_argument('--srBed',type=str,help='Path to the full repeat bed file')
    args = parser.parse_args()
    main(args)
