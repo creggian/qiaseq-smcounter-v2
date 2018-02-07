@@ -7,9 +7,7 @@
 
 rm(list=ls())
 library(plyr)
-#bkgErrorDistSimulation <- '/qgen/home/xuc/frequentlyUsedFiles/bkg.error.v2.RData'
-#bkgErrorDistSimulation <- '/mnt/webserver/datadisk/varcall/frequentlyUsedFiles/bkg.error.v2.RData'
-bkgErrorDistSimulation <- '/home/xuc/frequentlyUsedFiles/bkg.error.v2.RData'
+bkgErrorDistSimulation <- '/mnt/webserver/datadisk/resources/varcall/frequentlyUsedFiles/bkg.error.v2.RData'
 
 args <- commandArgs(TRUE)
 wd <- args[1]

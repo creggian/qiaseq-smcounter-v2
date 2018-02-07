@@ -9,7 +9,7 @@ import sys
 from operator import itemgetter
 
 
-def assign_gt(alts,chrom,vmf):
+def assign_gt(alt,chrom,vmf):
    ''' Function for faking the Genotype i.e. GT field
    for downstream tools
    :param alts (str) alternative allele(s)
@@ -36,7 +36,7 @@ def assign_ad(uumi,vumi):
    '''
    vumis = vumi.split(',')   
    for umi in vumis:
-      refumi = int(uumis) - int(umi)
+      refumi = int(uumi) - int(umi)
    refumi = str(refumi)
    ad = refumi + ',' + ','.join(vumis)
    return ad 
@@ -45,33 +45,34 @@ def assign_ad(uumi,vumi):
 # function to handle normal variants
 #--------------------------------------------------------------------------------------
 def biAllelicVar(alleles, RepRegion, outVcf,cutoff):
+   ID = '.'
    chrom, pos, ref, alt, typ, dp, vdp, vaf, umt, vmt, vmf, qual, fqual, fltr = alleles[0]
-      if fqual >= cutoff:         
-         INFO = ';'.join(
-            ['TYPE=' +typ,'RepRegion=' + RepRegion,'DP='+dp,'UMT='+umt,'VMT='+vmt,
-             'VMF='+vmf]
-         )
-         if vmf > 0.95: ## Treat as Het 
-            genotype = '1/1'
-         else:
-            genotype = '0/1'
-            
-         ## Hack for AD
-         refmt = str(int(umt) - int(vmt))
-         ad = refmt + "," + vmt
-         
-         FORMAT = 'GT:AD:VF'
-         gt = assign_gt(alt,chrom,vmf)
-         ad = assign_ad(umt,vmt)         
-         SAMPLE = ':'.join([genotype,ad,vmf])
-         vcfLine = '\t'.join([chrom, pos, ID, ref, alt, qual, fltr, INFO, FORMAT, SAMPLE]) + '\n'
-         outVcf.write(vcfLine)
+   if fqual >= cutoff:         
+      INFO = ';'.join(
+         ['TYPE=' +typ,'RepRegion=' + RepRegion,'DP='+dp,'UMT='+umt,'VMT='+vmt,
+          'VMF='+vmf]
+      )
+      if vmf > 0.95: ## Treat as Het 
+         genotype = '1/1'
+      else:
+         genotype = '0/1'
+
+      ## Hack for AD
+      refmt = str(int(umt) - int(vmt))
+      ad = refmt + "," + vmt
+
+      FORMAT = 'GT:AD:VF'
+      gt = assign_gt(alt,chrom,vmf)
+      ad = assign_ad(umt,vmt)         
+      SAMPLE = ':'.join([genotype,ad,vmf])
+      vcfLine = '\t'.join([chrom, pos, ID, ref, alt, qual, fltr, INFO, FORMAT, SAMPLE]) + '\n'
+      outVcf.write(vcfLine)
 
 #--------------------------------------------------------------------------------------
 # function to handle multi-allelic variants
 #--------------------------------------------------------------------------------------
 def multiAllelicVar(alleles, RepRegion, outVcf,cutoff):
-
+  ID = '.'
   tmpAlleles = [x for x in alleles if x[-2] >= cutoff and x[-1] == 'PASS']
   lenTmpAlleles = len(tmpAlleles)
   if lenTmpAlleles == 0:
@@ -86,7 +87,7 @@ def multiAllelicVar(alleles, RepRegion, outVcf,cutoff):
      ad = assign_ad(umt,vmt)
      SAMPLE = ':'.join([genotype,ad,vmf])
      vcfLine = '\t'.join([chrom, pos, ID, ref, alt, qual, fltr, INFO, FORMAT, SAMPLE]) + '\n'
-     outvcf[i].write(vcfLine)
+     outVcf.write(vcfLine)
   else:
      VDPs, VAFs, VMTs, VMFs, QUALs, fQUALs, TYPEs, REFs, ALTs= [], [], [], [], [], [], [], [], []
      for allele in tmpAlleles:
@@ -177,7 +178,7 @@ def main(runPath, outlong, sampleName):
          '##FORMAT=<ID=LogP,Number=.,Type=Float,Description="Log P value. For bi- and multi-allelic variants, QUAL is the minimum of LogP">' + '\n' + \
          '\t'.join(['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT'] + [sampleName]) + '\n'
 
-   outvcf, alleles = [], []
+   alleles = []
    lastCHROM, lastPOS = '', ''
 
    outVcf.write(header_vcf)
@@ -223,12 +224,12 @@ def main(runPath, outlong, sampleName):
 
          # for new chrom or position, if last variant is not multi-allelic, write to vcf directly
          elif lenAlleles == 1:
-            biAllelicVar(alleles, RepRegion, outvcf)
+            biAllelicVar(alleles, RepRegion, outVcf,cutoff)
             alleles = [currentAllele]
 
          # if last variant is possible multi-allelic, combine and write as one 
-         else: 
-            multiAllelicVar(alleles, RepRegion, outvcf)
+         else:            
+            multiAllelicVar(alleles, RepRegion, outVcf,cutoff)
             alleles = [currentAllele]
 
          lastCHROM, lastPOS = CHROM, POS

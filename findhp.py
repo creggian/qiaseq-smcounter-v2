@@ -11,12 +11,12 @@ from collections import defaultdict
 
 #refg = '/mnt/webserver/datadisk/varcall/frequentlyUsedFiles/ucsc.hg19.fasta'
 #refg = '/qgen/home/xuc/frequentlyUsedFiles/ucsc.hg19.fasta'
-refg = '/home/xuc/frequentlyUsedFiles/ucsc.hg19.fasta'
+#refg = '/home/xuc/frequentlyUsedFiles/ucsc.hg19.fasta'
 
 #-------------------------------------------------------------------------------------
 # find homopolymer sequences
 #-------------------------------------------------------------------------------------
-def findhp(bedName, outName, minLength):
+def findhp(bedName, outName, minLength,refg):
    outfile = open(outName, 'w')
    for line in open(bedName, 'r'):
       lineList = line.strip().split('\t')
@@ -53,6 +53,7 @@ if __name__ == "__main__":
    bedName = sys.argv[1]
    outName = sys.argv[2]
    minLength = int(sys.argv[3])
-   findhp(bedName, outName, minLength)
+   refg = sys.argv[4]
+   findhp(bedName, outName, minLength,refg)
 
 

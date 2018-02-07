@@ -6,7 +6,6 @@ import sys
 import datetime
 import subprocess
 import time
-import runLog
 import operator
 import multiprocessing
 from collections import defaultdict
@@ -14,15 +13,15 @@ import random
 import traceback
 
 # 3rd party modules
+import argparse
 import pysam
 import scipy.stats
 import statistics
 
-filePath = '/home/xuc/frequentlyUsedFiles/'
-codePath = '/home/xuc/VariantCallingCode/'
+codePath = '/home/qiauser/qiaseq-smcounter-v2/'
 
 homopolymerCode = codePath + 'findhp.py'
-pValCode = codePath + 'getPvalue.v2.4.old.R'
+pValCode = codePath + 'getPvalue.v2.4.R'
 vcfCode = codePath + 'makeVcf.v2.4.py'
 
 atgc = ['A', 'T', 'G', 'C']
@@ -30,9 +29,9 @@ seed = 10262016
 nsim = 5000
 minTotalUMI = 5
 
-mtTag = "Bc"
+mtTag = "Mi"
 tagSeparator = "-"
-primerTag = "tr"
+primerTag = "pr"
 
 _num_cols_ = 38 ## Number of columns in out_long returned by the vc() function of smCounter
 
@@ -44,9 +43,11 @@ _num_cols_ = 38 ## Number of columns in out_long returned by the vc() function o
 def vc_wrapper(*args):
    try:
       output = vc(*args)
-   except:
+   except Exception as e:
       print("Exception thrown in vc() function at genome location:", args[1], args[2])
-      output = "Exception thrown!\n" + traceback.format_exc()
+      output = ("Exception thrown!\n" + traceback.format_exc(),'no_bg')
+      print output[0]
+      raise Exception(e)
    return output
 	
 #-------------------------------------------------------------------------------------
@@ -186,7 +187,7 @@ def isHPorLowComp(chrom, pos, length, refb, altb, refg):
    # get reference base
    refs = pysam.FastaFile(refg)
    # ref sequence of [pos-length, pos+length] interval
-   chromLength = refg.get_reference_length(chrom)
+   chromLength = refs.get_reference_length(chrom)
    pos0 = int(pos) - 1   
    Lseq = refs.fetch(reference=chrom,start=max(0,pos0-length),end=pos0).upper()
    Rseq_ref = refs.fetch(reference=chrom,start=pos0+len(refb),end=min(pos0+len(refb)+length,chromLength)).upper()  
@@ -203,7 +204,7 @@ def isHPorLowComp(chrom, pos, length, refb, altb, refg):
    # check low complexity -- window length is 2 * homopolymer region. If any 2 nucleotide >= 99% 
    len2 = 2 * length
    LseqLC = refs.fetch(reference=chrom,start=max(0,pos0-len2),end=pos0).upper()
-   Rseq_refLC = refs.fetch(reference=chrom,start=pos0+len(refb),end=min(pos0+len(refb)+len2.chromLength)).upper()
+   Rseq_refLC = refs.fetch(reference=chrom,start=pos0+len(refb),end=min(pos0+len(refb)+len2,chromLength)).upper()
    Rseq_altLC = refs.fetch(reference=chrom,start=min(pos0+len(altb),chromLength),end=min(pos0+len(altb)+len2,chromLength)).upper()
    # ref seq   
    refSeqLC = LseqLC + refb + Rseq_refLC
@@ -246,7 +247,7 @@ def isHPorLowComp(chrom, pos, length, refb, altb, refg):
 #-------------------------------------------------------------------------------------
 # function to call variants
 #-------------------------------------------------------------------------------------
-def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLen, mismatchThr, primerDist, mtThreshold, rpb, primerSide, refg, minAltUMI, maxAltAllele):
+def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLen, mismatchThr, primerDist, mtThreshold, rpb, primerSide, refg, minAltUMI, maxAltAllele):   
    samfile = pysam.AlignmentFile(bamName, 'rb')
 
    mtSide = 'R1' if primerSide == 'R2' else 'R2'
@@ -796,14 +797,12 @@ def main(args):
    # make /intermediate directory to keep the long output
    if not os.path.exists('intermediate'):
       os.makedirs('intermediate')
-   # initialize logger (param is whether or not to print to stdout)
-   runLog.init(False, args.prefix + '.log')
    # log run start
    timeStart = datetime.datetime.now()
    print("started at " + str(timeStart))
 
    # intersect repeats and target regions   
-   subprocess.check_call('python ' + homopolymerCode + ' ' + args.bedName + ' hp.roi.bed 6', shell=True)
+   subprocess.check_call('python ' + homopolymerCode + ' ' + args.bedName + ' hp.roi.bed 6' + ' ' + args.refGenome , shell=True)
    subprocess.check_call('bedtools intersect -a ' + args.repBed + ' -b ' + args.bedName + ' | bedtools sort -i > rep.roi.bed', shell=True)
    subprocess.check_call('bedtools intersect -a ' + args.srBed +  ' -b ' + args.bedName + ' | bedtools sort -i > sr.roi.bed', shell=True)
 
@@ -892,16 +891,6 @@ def main(args):
          else:
             pos += 1
 
-   outfile_long = open('intermediate/nopval.' + args.prefix + '.VariantList.long.txt', 'w')
-   bkgFileName = 'intermediate/bkg.' + args.prefix + '.txt'
-   outfile_bkg = open(bkgFileName, 'w')
-
-   header_1 = ['CHROM', 'POS', 'REF', 'ALT', 'TYPE', 'sUMT', 'sForUMT', 'sRevUMT', 'sVMT', 'sForVMT', 'sRevVMT', 'sVMF', 'sForVMF', 'sRevVMF', 'VDP', 'VAF', 'RefForPrimer', 'RefRevPrimer', 'primerOR', 'pLowQ', 'hqUmiEff', 'allUmiEff', 'refMeanRpb', 'altMeanRpb', 'rpbEffectSize', 'repType', 'hpInfo', 'simpleRepeatInfo', 'tandemRepeatInfo', 'DP', 'FR', 'MT', 'UFR', 'sUMT_A', 'sUMT_T', 'sUMT_G', 'sUMT_C', 'FILTER']
-   header_2 = ['CHROM', 'POS', 'REF', 'A/G', 'G/A', 'C/T', 'T/C', 'A/C', 'C/A', 'A/T', 'T/A', 'C/G', 'G/C', 'G/T', 'T/G', 'negStrand', 'posStrand', 'AllSMT' ]
-
-   outfile_long.write('\t'.join(header_1) + '\n')
-   outfile_bkg.write('\t'.join(header_2) + '\n')
-
 
    # calculate rpb if args.rpb = 0
    if args.isRna:
@@ -916,10 +905,10 @@ def main(args):
       
    # set primer side
    primerSide = 'R1' if args.primerSide == 1 else 'R2'
-   
+
    # run Python multiprocessing module
-   pool = mp.Pool(processes=args.nCPU)
-   results = [pool.apply_async(vc_wrapper, args=(args.bamName, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, args.refg, args.minAltUMI, args.maxAltAllele)) for x in locList]
+   pool = multiprocessing.Pool(processes=args.nCPU)
+   results = [pool.apply_async(vc_wrapper, args=(args.bamName, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, args.refGenome, args.minAltUMI, args.maxAltAllele)) for x in locList]
    # clear finished pool
    pool.close()
    pool.join()
@@ -930,11 +919,22 @@ def main(args):
 
    # check for exceptions thrown by vc()
    for idx in range(len(output)):
-      (line, _) = output[idx]
+      line,bg = output[idx]
       if line.startswith("Exception thrown!"):
          print(line)
          raise Exception("Exception thrown in vc() at location: " + str(locList[idx]))
-		 
+
+
+   outfile_long = open('intermediate/nopval.' + args.prefix + '.VariantList.long.txt', 'w')
+   bkgFileName = 'intermediate/bkg.' + args.prefix + '.txt'
+   outfile_bkg = open(bkgFileName, 'w')
+
+   header_1 = ['CHROM', 'POS', 'REF', 'ALT', 'TYPE', 'sUMT', 'sForUMT', 'sRevUMT', 'sVMT', 'sForVMT', 'sRevVMT', 'sVMF', 'sForVMF', 'sRevVMF', 'VDP', 'VAF', 'RefForPrimer', 'RefRevPrimer', 'primerOR', 'pLowQ', 'hqUmiEff', 'allUmiEff', 'refMeanRpb', 'altMeanRpb', 'rpbEffectSize', 'repType', 'hpInfo', 'simpleRepeatInfo', 'tandemRepeatInfo', 'DP', 'FR', 'MT', 'UFR', 'sUMT_A', 'sUMT_T', 'sUMT_G', 'sUMT_C', 'FILTER']
+   header_2 = ['CHROM', 'POS', 'REF', 'A/G', 'G/A', 'C/T', 'T/C', 'A/C', 'C/A', 'A/T', 'T/A', 'C/G', 'G/C', 'G/T', 'T/G', 'negStrand', 'posStrand', 'AllSMT' ]
+
+   outfile_long.write('\t'.join(header_1) + '\n')
+   outfile_bkg.write('\t'.join(header_2) + '\n')
+      
    # write output and bkg files to disk
    for (vcOutline, bkgOutline) in output:
       outfile_long.write(vcOutline)
