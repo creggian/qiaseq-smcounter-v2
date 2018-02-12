@@ -57,10 +57,6 @@ def biAllelicVar(alleles, RepRegion, outVcf,cutoff):
       else:
          genotype = '0/1'
 
-      ## Hack for AD
-      refmt = str(int(umt) - int(vmt))
-      ad = refmt + "," + vmt
-
       FORMAT = 'GT:AD:VF'
       gt = assign_gt(alt,chrom,vmf)
       ad = assign_ad(umt,vmt)         
@@ -83,13 +79,15 @@ def multiAllelicVar(alleles, RepRegion, outVcf,cutoff):
             ['TYPE=' +typ,'RepRegion=' + RepRegion,'DP='+dp,'UMT='+umt,'VMT='+vmt,
              'VMF='+vmf]
          )
+
+     FORMAT = 'GT:AD:VF'
      gt = assign_gt(alt,chrom,vmf)
      ad = assign_ad(umt,vmt)
-     SAMPLE = ':'.join([genotype,ad,vmf])
+     SAMPLE = ':'.join([gt,ad,vmf])     
      vcfLine = '\t'.join([chrom, pos, ID, ref, alt, qual, fltr, INFO, FORMAT, SAMPLE]) + '\n'
      outVcf.write(vcfLine)
   else:
-     VDPs, VAFs, VMTs, VMFs, QUALs, fQUALs, TYPEs, REFs, ALTs= [], [], [], [], [], [], [], [], []
+     VDPs, VAFs, VMTs, VMFs, QUALs, fQUALs, TYPEs, REFs, ALTs, DPs = [], [], [], [], [], [], [], [], [], []
      for allele in tmpAlleles:
         chrom, pos, ref, alt, typ, dp, vdp, vaf, umt, vmt, vmf, qual, fqual, fltr = allele
         VDPs.append(vdp)
@@ -130,8 +128,8 @@ def multiAllelicVar(alleles, RepRegion, outVcf,cutoff):
      FORMAT = 'GT:AD:VF' 
      gt = assign_gt(finalAlt,chrom,allVMFs)
      ad = assign_ad(umt,allVMTs)   
-     SAMPLE = ':'.join([genotype,ad,vmf])
-     vcfLine = '\t'.join([chrom, pos, ID, finalRef, finalAlt, newQual, 'PASS', INFO, FORMAT, SAMPLE]) + '\n'
+     SAMPLE = ':'.join([gt,ad,vmf])
+     vcfLine = '\t'.join([chrom, pos, ID, finalRef, finalAlt, newQual, 'PASS', INFO, FORMAT, SAMPLE]) + '\n'     
      outVcf.write(vcfLine)
 
 #--------------------------------------------------------------------------------------
@@ -144,13 +142,18 @@ def main(runPath, outlong, sampleName):
    outVariants = open(sampleName + '.smCounter.cut.txt','w')
    outVcf = open(sampleName + '.smCounter.cut.vcf','w')
    outLowPi = open(sampleName + '.smCounter.GT12PI.txt','w')
-   cutoff = 5
-   minCutoff = 2
+   
+   cutoff = 6
+   minCutoff = {'INDEL': 2.5,'SNP':5} ## Cutoff for the low-PI file
+
    
    ID = '.'
    headerAll = ['CHROM', 'POS', 'REF', 'ALT', 'TYPE', 'sUMT', 'sForUMT', 'sRevUMT', 'sVMT', 'sForVMT', 'sRevVMT', 'sVMF', 'sForVMF', 'sRevVMF', 'VDP', 'VAF', 'RefForPrimer', 'RefRevPrimer', 'primerOR', 'pLowQ', 'hqUmiEff', 'allUmiEff', 'refMeanRpb', 'altMeanRpb', 'rpbEffectSize', 'repType', 'hpInfo', 'simpleRepeatInfo', 'tandemRepeatInfo', 'DP', 'FR', 'MT', 'UFR', 'sUMT_A', 'sUMT_T', 'sUMT_G', 'sUMT_C', 'logpval', 'FILTER']
-   headerVariants = ['CHROM','POS','REF','ALT','TYPE','DP','MT','sUMT','sVMT','sVMF','FILTER']   
+   headerVariants = ['CHROM','POS','REF','ALT','TYPE','DP','MT','sUMT','sVMT','sVMF','FILTER']
+   
+   
    header_vcf = '##fileformat=VCFv4.2' + '\n' + \
+         '##reference=GRCh37' + '\n' + \
          '##FILTER=<ID=LM,Description="Low coverage (fewer than 5 barcodes)">' + '\n' + \
          '##FILTER=<ID=RepT,Description="Variant in tandem repeat (TFR) regions">' + '\n' + \
          '##FILTER=<ID=RepS,Description="Variant in simple repeats (RepeatMasker) regions">' + '\n' + \
@@ -165,17 +168,15 @@ def main(runPath, outlong, sampleName):
          '##FILTER=<ID=RPCP,Description="Variant are clustered at the end of primer-side reads">' + '\n' + \
          '##FILTER=<ID=PB,Description="Primer bias filter. odds ratio > 10 or < 0.1">' + '\n' + \
          '##FILTER=<ID=PrimerCP,Description="variant is clustered within 2 bases from primer sequence due to possible primer dimers">' + '\n' + \
-         '##INFO=<ID=SAMPLE,Number=1,Type=String,Description="Sample name">' + '\n' + \
          '##INFO=<ID=TYPE,Number=.,Type=String,Description="Variant type: SNP/INDEL/COMPLEX">' + '\n' + \
          '##INFO=<ID=RepRegion,Number=.,Type=String,Description="Repetitive region">' + '\n' + \
+         '##INFO=<ID=DP,Number=1,Type=Integer,Description="Total read depth">' + '\n' + \
+         '##INFO=<ID=UMT,Number=1,Type=Integer,Description="Total used UMI depth">' + '\n' + \
+         '##INFO=<ID=VMT,Number=.,Type=Integer,Description="Variant UMI depth">' + '\n' + \
+         '##INFO=<ID=VMF,Number=.,Type=Float,Description="Variant UMI allele frequency">' + '\n' + \
          '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">' + '\n' + \
-         '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Total read depth">' + '\n' + \
-         '##FORMAT=<ID=VDP,Number=.,Type=Integer,Description="Variant read depth">' + '\n' + \
-         '##FORMAT=<ID=VAF,Number=.,Type=Float,Description="Variant read allele frequency">' + '\n' + \
-         '##FORMAT=<ID=UMT,Number=1,Type=Integer,Description="Total used UMI depth">' + '\n' + \
-         '##FORMAT=<ID=VMT,Number=.,Type=Integer,Description="Variant UMI depth">' + '\n' + \
-         '##FORMAT=<ID=VMF,Number=.,Type=Float,Description="Variant UMI allele frequency">' + '\n' + \
-         '##FORMAT=<ID=LogP,Number=.,Type=Float,Description="Log P value. For bi- and multi-allelic variants, QUAL is the minimum of LogP">' + '\n' + \
+         '##FORMAT=<ID=AD,Number=.,Type=Integer,Description="Filtered allelic MT depths for the ref and alt alleles">' + '\n' + \
+         '##FORMAT=<ID=VF,Number=.,Type=Float,Description="Variant UMI allele frequency, same as VMF">' + '\n' + \
          '\t'.join(['#CHROM', 'POS', 'ID', 'REF', 'ALT', 'QUAL', 'FILTER', 'INFO', 'FORMAT'] + [sampleName]) + '\n'
 
    alleles = []
@@ -190,6 +191,10 @@ def main(runPath, outlong, sampleName):
          cnt += 1
          CHROM, POS, REF, ALT, TYPE, sUMT, sForUMT, sRevUMT, sVMT, sForVMT, sRevVMT, sVMF, sForVMF, sRevVMF, VDP, VAF, RefForPrimer, RefRevPrimer, primerOR, pLowQ, hqUmiEff, allUmiEff, refMeanRpb, altMeanRpb, rpbEffectSize, repType, hpInfo, simpleRepeatInfo, tandemRepeatInfo, DP, FR, MT, UFR, sUMT_A, sUMT_T, sUMT_G, sUMT_C, logpval, FILTER = line.strip().split('\t')
 
+
+         if TYPE == '0':
+            continue
+         
          if ALT == 'DEL': 
             continue
 
@@ -200,7 +205,7 @@ def main(runPath, outlong, sampleName):
          except ValueError:
             fQUAL = 0.00
 
-         if fQUAL < minCutoff:
+         if fQUAL < minCutoff[TYPE.upper()]:
             lastCHROM = '.'
             continue
          try:
