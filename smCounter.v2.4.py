@@ -8,7 +8,7 @@ import subprocess
 import time
 import operator
 import multiprocessing
-from collections import defaultdict
+from collections import defaultdict, Counter
 import random
 import traceback
 
@@ -78,12 +78,12 @@ def getMeanRpb(bamName):
       allFragSet.add(qname)
       allBcSet.add(BC)
 
-      # total fragment count
-      totalFrag = len(allFragSet)
-      # total MT count
-      totalMT = len(allBcSet)
-      # mean rpb
-      meanRpb = float(totalFrag) / totalMT
+   # total fragment count
+   totalFrag = len(allFragSet)
+   # total MT count
+   totalMT = len(allBcSet)
+   # mean rpb
+   meanRpb = float(totalFrag) / totalMT
 
    return meanRpb
 
@@ -138,54 +138,38 @@ def lowQPredict(bqAlt, vafToVmfRatio):
 # find the consensus nucleotide (including indel) in a UMI family with high quality reads only
 #-------------------------------------------------------------------------------------
 def consHqMT(oneBC, mtThreshold):
-   readCnt = defaultdict(int)
-   totalCnt = 0
-   cons = '' 
-
-   # count read pairs of each base
-   for readpair in oneBC.values():
-      base = readpair[0]
-      readCnt[base] += 1
-      totalCnt += 1
-
+   totalCnt = oneBC['all']
+   cons = ''
    # find the majority base(s) whose proportion in the MT >= mtThreshold. NOTE: mtThreshold must be > 0.5 to ensure only one cons 
-   for base in readCnt:
-      pCons = 1.0 * readCnt[base] / totalCnt if totalCnt > 0 else 0.0
+   for base in oneBC:
+      pCons = 1.0 * oneBC[base] / totalCnt if totalCnt > 0 else 0.0
       if pCons >= mtThreshold:
          cons = base
          break
-
    # report the consensus base. If no consensus or lack of read support, output ''. 
-   return (cons, readCnt)
+   return cons
 
 #-------------------------------------------------------------------------------------
 # find the consensus nucleotide (including indel) in a UMI family with all reads 
 #-------------------------------------------------------------------------------------
 def consAllMT(readList, mtThreshold):
-   readCnt = defaultdict(int)
-   totalCnt = len(readList)
-   cons = '' 
-
-   # count read pairs of each base
+   totalCnt = readList['all']
+   cons = ''
+   # find the majority base(s) whose proportion in the MT >= mtThreshold. NOTE: mtThreshold must be > 0.5 to ensure only one cons
    for base in readList:
-      readCnt[base] += 1
-
-   # find the majority base(s) whose proportion in the MT >= mtThreshold. NOTE: mtThreshold must be > 0.5 to ensure only one cons 
-   for base in readCnt:
-      pCons = 1.0 * readCnt[base] / totalCnt if totalCnt > 0 else 0.0
+      pCons = 1.0 * readList[base] / totalCnt if totalCnt > 0 else 0.0
       if pCons >= mtThreshold:
          cons = base
          break
-
    # report the consensus base. If no consensus or lack of read support, output ''. 
-   return (cons, readCnt)
+   return cons
 
 #-------------------------------------------------------------------------------------
 # check if a locus is within or flanked by homopolymer region and/or low complexity region
 #-------------------------------------------------------------------------------------
-def isHPorLowComp(chrom, pos, length, refb, altb, refg):
+def isHPorLowComp(chrom, pos, length, refb, altb, refs):
    # get reference base
-   refs = pysam.FastaFile(refg)
+   #refs = pysam.FastaFile(refg)
    # ref sequence of [pos-length, pos+length] interval
    chromLength = refs.get_reference_length(chrom)
    pos0 = int(pos) - 1   
@@ -252,9 +236,14 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
 
    mtSide = 'R1' if primerSide == 'R2' else 'R2'
    cvg = 0
-   bcDictHq = defaultdict(lambda: defaultdict(list)) 
-   bcDictAll = defaultdict(list)
-   allBcDict = defaultdict(list) 
+   
+   bcDictHq = defaultdict(lambda: defaultdict(list))
+   bcDictHqBase = defaultdict(lambda:defaultdict(int))
+   usedFrag = 0
+   bcDictAll = defaultdict(lambda:defaultdict(int))
+   allBcDict = defaultdict(set)
+   allFrag = 0
+
    alleleCnt = defaultdict(int)
    mtSideBcEndPos = defaultdict(list)
 
@@ -287,12 +276,6 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
    allDisagree = defaultdict(int)
 
    rpbCnt = defaultdict(list)
-
-   # initiate sMtConsByBase.. not necessary?
-   sMtConsByBase['A'] = 0
-   sMtConsByBase['T'] = 0
-   sMtConsByBase['G'] = 0
-   sMtConsByBase['C'] = 0
 
    # output 
    out_long = ''
@@ -452,7 +435,8 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
 
          # count total number of fragments and MTs
          if readid not in allBcDict[BC]:
-            allBcDict[BC].append(readid)
+            allFrag+=1 # total fragments
+            allBcDict[BC].add(readid)
 
          # inclusion condition. NOTE: reads with duplex tag 'NN' are dropped from analysis
          incCond = bq >= minBQ and mq >= minMQ and mismatchPer100b <= mismatchThr and hpCovered
@@ -462,24 +446,32 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
             if readid not in bcDictHq[BC]:
                readinfo = [base, pairOrder]
                bcDictHq[BC][readid] = readinfo
+               # store base level information to avoid looping over read ids again
+               bcDictHqBase[BC][base]+=1
+               bcDictHqBase[BC]['all']+1
+               usedFrag+=1 # used fragments
+               
             elif base == bcDictHq[BC][readid][0] or base in ['N', '*']:
                bcDictHq[BC][readid][1] = 'Paired'
                if base == bcDictHq[BC][readid][0]:
                   concordPairCnt[base] += 1
             else:
-               del bcDictHq[BC][readid]
+               # decrement fragment and base count
+               usedFrag-=1               
+               bcDictHqBase[BC][bcDictHq[BC][readid][0]]-=1
+               del bcDictHq[BC][readid]               
                discordPairCnt[base] += 1
 
          # in non-HP region, include all reads for consensus. In HP region, including only the reads covering the HP. 
          if hpCovered:
-            bcDictAll[BC].append(base)
+            #bcDictAll[BC].append(base)
+            bcDictAll[BC][base]+=1
+            bcDictAll[BC]['all']+=1
 
    ##### end of looping through pileup reads ####
 
    # total number of MT, fragments, reads, including those dropped from analysis
    allMT = len(allBcDict)
-   allFrag = sum([len(allBcDict[bc]) for bc in allBcDict])
-   usedFrag = sum([len(bcDictHq[bc]) for bc in bcDictHq])
 
    # gradually drop 1 read MTs
    bcToKeep = []
@@ -515,6 +507,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
          oneReadMtToDrop = singleMTs.union(pairsToDrop)
       # drop 1 read MTs
       bcToKeep = list(set(bcDictHq.keys()).difference(oneReadMtToDrop))
+      
 
    #rpb >= 3: drop all 1 read MTs;
    else:
@@ -531,22 +524,22 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
          primerDirection = 'F' if primerDirCode == '0' else 'R' # 0 means the primer was priming the forward strand, 1 means priming the reverse strand
 
          # get consensus call of the UMI family
-         (consHq, rcHq) = consHqMT(bcDictHq[bc], mtThreshold)
-         (consAll, rcAll) = consAllMT(bcDictAll[bc], mtThreshold)
+         consHq = consHqMT(bcDictHqBase[bc], mtThreshold)
+         consAll = consAllMT(bcDictAll[bc], mtThreshold)
          cons = consHq if consHq == consAll else ''   
 
          # count number of reads in concordant/discordant with consensus
-         for base in rcHq:
+         for base in bcDictHqBase[bc]:
             if base == cons:
-               hqAgree[base] += rcHq[base]
+               hqAgree[base] += bcDictHqBase[bc][base]
             else:
-               hqDisagree[base] += rcHq[base]
+               hqDisagree[base] += bcDictHqBase[bc][base]
    
-         for base in rcAll:
+         for base in bcDictAll[bc]:
             if base == cons:
-               allAgree[base] += rcAll[base]
+               allAgree[base] += bcDictAll[bc][base]
             else:
-               allDisagree[base] += rcAll[base]
+               allDisagree[base] += bcDictAll[bc][base]
 
          if cons != '':
             sMtCons += 1
@@ -554,8 +547,8 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
             # MT counts from + and - strands 
             sMtConsByDir[primerDirection] += 1
             sMtConsByDirByBase[cons][primerDirection] += 1
-            # read pairs in the UMI
-            rpbCnt[cons].append(len(bcDictAll[bc]))
+            # read pairs in the UMI            
+            rpbCnt[cons].append(bcDictAll[bc]['all'])
             
             # base substitutions (snp only)
             # Note: smtSNP and strands are usually NOT equal to sMtCons and sMtConsByDir. The former include only base substitutions MTs, and the latter include indel MTs. 
@@ -644,7 +637,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
 
             # repetative region filters
             hpIndelFilter = False
-            (hp, lowc) = isHPorLowComp(chrom, pos, hpLen, ref, alt, refg)
+            (hp, lowc) = isHPorLowComp(chrom, pos, hpLen, ref, alt, refseq)
             if hp and hpInfo == '.':   # if REF is not HP but ALT is, count as HP and set length = 8
                repTypeSet.add('HP')
                hpInfo = 'chr0;100;108;8'
@@ -785,6 +778,9 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
          if altCnt >= maxAltAllele:
             break
 
+   samfile.close()
+   refseq.close()
+   
    return (out_long, out_bkg)
 
 
@@ -808,89 +804,92 @@ def main(args):
 
    # homopolymer 
    hpRegion = defaultdict(list)
-   for line in open('hp.roi.bed', 'r'):
-      [chrom, regionStart, regionEnd, repType, totalLen, unitLen, repLen, repBase] = line.strip().split()
-      hpRegion[chrom].append([regionStart, regionEnd, repType, totalLen, unitLen, repLen])
+   with open('hp.roi.bed','r') as IN:
+      for line in IN:   
+         [chrom, regionStart, regionEnd, repType, totalLen, unitLen, repLen, repBase] = line.strip().split()
+         hpRegion[chrom].append([regionStart, regionEnd, repType, totalLen, unitLen, repLen])
 
    # tandem repeat 
    repRegion = defaultdict(list)
-   for line in open('rep.roi.bed', 'r'):
-      lineList = line.strip().split()
-      chrom = lineList[0]
-      regionStart = lineList[1]
-      regionEnd = lineList[2]
-      unitLen = lineList[4]
-      repLen = lineList[5]
-      try:
-         unitLen_num = float(unitLen)
-      except ValueError:
-         continue
-      try:
-         repLen_num = float(repLen)
-      except ValueError:
-         continue
+   with open('rep.roi.bed','r') as IN:
+      for line in IN:
+         lineList = line.strip().split()
+         chrom = lineList[0]
+         regionStart = lineList[1]
+         regionEnd = lineList[2]
+         unitLen = lineList[4]
+         repLen = lineList[5]
+         try:
+            unitLen_num = float(unitLen)
+         except ValueError:
+            continue
+         try:
+            repLen_num = float(repLen)
+         except ValueError:
+            continue
 
-      totalLen = str(unitLen_num * repLen_num)
-      repBase = lineList[-1]
-      repType = 'RepT'
-      repRegion[chrom].append([regionStart, regionEnd, repType, totalLen, unitLen, repLen])
+         totalLen = str(unitLen_num * repLen_num)
+         repBase = lineList[-1]
+         repType = 'RepT'
+         repRegion[chrom].append([regionStart, regionEnd, repType, totalLen, unitLen, repLen])
 
    # simple repeat, low complexity, satelite 
    srRegion = defaultdict(list)
-   for line in open('sr.roi.bed', 'r'):
-      [chrom, regionStart, regionEnd, repType, totalLen, unitLen, repLen, repBase] = line.strip().split()
-      if repType == 'Simple_repeat':
-         repType = 'RepS'
-      elif repType == 'Low_complexity':
-         repType = 'LowC'
-      elif repType == 'Satellite':
-         repType = 'SL'
-      else:
-         repType = 'Other_Repeat'
-      srRegion[chrom].append([regionStart, regionEnd, repType, totalLen, unitLen, repLen])
+   with open('sr.roi.bed','r') as IN:
+      for line in IN:
+         [chrom, regionStart, regionEnd, repType, totalLen, unitLen, repLen, repBase] = line.strip().split()
+         if repType == 'Simple_repeat':
+            repType = 'RepS'
+         elif repType == 'Low_complexity':
+            repType = 'LowC'
+         elif repType == 'Satellite':
+            repType = 'SL'
+         else:
+            repType = 'Other_Repeat'
+         srRegion[chrom].append([regionStart, regionEnd, repType, totalLen, unitLen, repLen])
 
    # read in bed file and create a list of positions, annotated with repetitive region
    locList = []
-   for line in open(args.bedName, 'r'):
-      lineList = line.strip().split('\t')
-      chrom = lineList[0]
-      regionStart = int(lineList[1]) + 1   # target region starts from 1-base after 
-      regionEnd = lineList[2]
+   with open(args.bedName,'r') as IN:
+      for line in IN:
+         lineList = line.strip().split('\t')
+         chrom = lineList[0]
+         regionStart = int(lineList[1]) + 1   # target region starts from 1-base after 
+         regionEnd = lineList[2]
 
-      pos = regionStart
-      lineEnd = False
-       
-      while not lineEnd:
-         (hpInfo, srInfo, repInfo) = ('.', '.', '.')
-         repTypeSet = set()
-         # check if the site is in homopolymer region (not including 1 base before) 
-         for (regionStart_tmp, regionEnd_tmp, repType_tmp, totalLen_tmp, unitLen_tmp, repLen_tmp) in hpRegion[chrom]:
-            if pos >= int(regionStart_tmp) - 0 and pos <= int(regionEnd_tmp):
-               repTypeSet.add(repType_tmp)
-               hpInfo = ';'.join([chrom, regionStart_tmp, regionEnd_tmp, totalLen_tmp])
-               break
+         pos = regionStart
+         lineEnd = False
 
-         # check if the site is in other repeats region (including 1 base before) 
-         for (regionStart_tmp, regionEnd_tmp, repType_tmp, totalLen_tmp, unitLen_tmp, repLen_tmp) in srRegion[chrom]:
-            if pos >= int(regionStart_tmp) - 1 and pos <= int(regionEnd_tmp):
-               repTypeSet.add(repType_tmp)
-               srInfo = ';'.join([chrom, regionStart_tmp, regionEnd_tmp, totalLen_tmp, unitLen_tmp, repLen_tmp])
-               break
+         while not lineEnd:
+            (hpInfo, srInfo, repInfo) = ('.', '.', '.')
+            repTypeSet = set()
+            # check if the site is in homopolymer region (not including 1 base before) 
+            for (regionStart_tmp, regionEnd_tmp, repType_tmp, totalLen_tmp, unitLen_tmp, repLen_tmp) in hpRegion[chrom]:
+               if pos >= int(regionStart_tmp) - 0 and pos <= int(regionEnd_tmp):
+                  repTypeSet.add(repType_tmp)
+                  hpInfo = ';'.join([chrom, regionStart_tmp, regionEnd_tmp, totalLen_tmp])
+                  break
 
-         for [regionStart_tmp, regionEnd_tmp, repType_tmp, totalLen_tmp, unitLen_tmp, repLen_tmp] in repRegion[chrom]:
-            if pos >= int(regionStart_tmp) - 1 and pos <= int(regionEnd_tmp):
-               repTypeSet.add(repType_tmp)
-               repInfo = ';'.join([chrom, regionStart_tmp, regionEnd_tmp, totalLen_tmp, unitLen_tmp, repLen_tmp])
-               break
+            # check if the site is in other repeats region (including 1 base before) 
+            for (regionStart_tmp, regionEnd_tmp, repType_tmp, totalLen_tmp, unitLen_tmp, repLen_tmp) in srRegion[chrom]:
+               if pos >= int(regionStart_tmp) - 1 and pos <= int(regionEnd_tmp):
+                  repTypeSet.add(repType_tmp)
+                  srInfo = ';'.join([chrom, regionStart_tmp, regionEnd_tmp, totalLen_tmp, unitLen_tmp, repLen_tmp])
+                  break
 
-         repType = 'NA' if len(repTypeSet) == 0 else ';'.join(list(repTypeSet))
-         locList.append((chrom, str(pos), repType, hpInfo, srInfo, repInfo))
+            for [regionStart_tmp, regionEnd_tmp, repType_tmp, totalLen_tmp, unitLen_tmp, repLen_tmp] in repRegion[chrom]:
+               if pos >= int(regionStart_tmp) - 1 and pos <= int(regionEnd_tmp):
+                  repTypeSet.add(repType_tmp)
+                  repInfo = ';'.join([chrom, regionStart_tmp, regionEnd_tmp, totalLen_tmp, unitLen_tmp, repLen_tmp])
+                  break
 
-         if str(pos) == regionEnd:
-            lineEnd = True
-         else:
-            pos += 1
+            repType = 'NA' if len(repTypeSet) == 0 else ';'.join(list(repTypeSet))
+            locList.append((chrom, str(pos), repType, hpInfo, srInfo, repInfo))
 
+            if str(pos) == regionEnd:
+               lineEnd = True
+            else:
+               pos += 1
 
    # calculate rpb if args.rpb = 0
    if args.isRna:
@@ -906,6 +905,7 @@ def main(args):
    # set primer side
    primerSide = 'R1' if args.primerSide == 1 else 'R2'
 
+   templocList = locList[0:100]
    # run Python multiprocessing module
    pool = multiprocessing.Pool(processes=args.nCPU)
    results = [pool.apply_async(vc_wrapper, args=(args.bamName, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, args.refGenome, args.minAltUMI, args.maxAltAllele)) for x in locList]
@@ -914,8 +914,6 @@ def main(args):
    pool.join()
    # get results - a list of tuples of 2 strings
    output = [p.get() for p in results]
-
-   #output = [vc(args.bamName, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, refg, args.minAltUMI, args.maxAltAllele) for x in locList]
 
    # check for exceptions thrown by vc()
    for idx in range(len(output)):
@@ -957,10 +955,10 @@ def main(args):
    subprocess.check_call(vcfCmd, shell=True)
 
    # remove intermediate files
-   #os.remove('nochr.bed')
-   #os.remove('rep.roi.bed')
-   #os.remove('sr.roi.bed')
-   #os.remove(outfile1)
+   os.remove('hp.roi.bed')
+   os.remove('rep.roi.bed')
+   os.remove('sr.roi.bed')
+   os.remove(outfile1)
 
    # log run completion
    timeEnd = datetime.datetime.now()
