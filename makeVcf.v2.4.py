@@ -79,7 +79,6 @@ def multiAllelicVar(alleles, RepRegion, outVcf,cutoff):
             ['TYPE=' +typ,'RepRegion=' + RepRegion,'DP='+dp,'UMT='+umt,'VMT='+vmt,
              'VMF='+vmf]
          )
-
      FORMAT = 'GT:AD:VF'
      gt = assign_gt(alt,chrom,vmf)
      ad = assign_ad(umt,vmt)
@@ -149,10 +148,9 @@ def main(runPath, outlong, sampleName):
    
    ID = '.'
    headerAll = ['CHROM', 'POS', 'REF', 'ALT', 'TYPE', 'sUMT', 'sForUMT', 'sRevUMT', 'sVMT', 'sForVMT', 'sRevVMT', 'sVMF', 'sForVMF', 'sRevVMF', 'VDP', 'VAF', 'RefForPrimer', 'RefRevPrimer', 'primerOR', 'pLowQ', 'hqUmiEff', 'allUmiEff', 'refMeanRpb', 'altMeanRpb', 'rpbEffectSize', 'repType', 'hpInfo', 'simpleRepeatInfo', 'tandemRepeatInfo', 'DP', 'FR', 'MT', 'UFR', 'sUMT_A', 'sUMT_T', 'sUMT_G', 'sUMT_C', 'logpval', 'FILTER']
-   headerVariants = ['CHROM','POS','REF','ALT','TYPE','DP','MT','sUMT','sVMT','sVMF','FILTER']
-   
-   
-   header_vcf = '##fileformat=VCFv4.2' + '\n' + \
+   headerVariants = ['CHROM','POS','REF','ALT','TYPE','DP','VDP','VAF','sUMT','sVMT','sVMF','QUAL','FILTER']
+   headerLowPi = [sampleName] + headerVariants   
+   headerVcf = '##fileformat=VCFv4.2' + '\n' + \
          '##reference=GRCh37' + '\n' + \
          '##FILTER=<ID=LM,Description="Low coverage (fewer than 5 barcodes)">' + '\n' + \
          '##FILTER=<ID=RepT,Description="Variant in tandem repeat (TFR) regions">' + '\n' + \
@@ -182,16 +180,19 @@ def main(runPath, outlong, sampleName):
    alleles = []
    lastCHROM, lastPOS = '', ''
 
-   outVcf.write(header_vcf)
+   outAll.write('\t'.join(headerAll)+'\n')
+   outVariants.write('\t'.join(headerVariants)+'\n')
+   outLowPi.write('\t'.join(headerLowPi)+'\n')
+   outVcf.write(headerVcf)
 
    cnt = 1
    with open(outlong, 'r') as f:
       next(f)
       for line in f:
+         outAll.write(line)
          cnt += 1
          CHROM, POS, REF, ALT, TYPE, sUMT, sForUMT, sRevUMT, sVMT, sForVMT, sRevVMT, sVMF, sForVMF, sRevVMF, VDP, VAF, RefForPrimer, RefRevPrimer, primerOR, pLowQ, hqUmiEff, allUmiEff, refMeanRpb, altMeanRpb, rpbEffectSize, repType, hpInfo, simpleRepeatInfo, tandemRepeatInfo, DP, FR, MT, UFR, sUMT_A, sUMT_T, sUMT_G, sUMT_C, logpval, FILTER = line.strip().split('\t')
-
-
+         
          if TYPE == '0':
             continue
          
@@ -220,9 +221,17 @@ def main(runPath, outlong, sampleName):
          # rep types are separeted by ";" in the long output. Replace to "," to comply with VCF format
          RepRegion = repType.replace(';', ',')
 
+         
          currentAllele = (CHROM, POS, REF, ALT, TYPE, DP, VDP, VAF, sUMT, sVMT, sVMF, QUAL, fQUAL, FILTER)
+         tempVar = (CHROM, POS, REF, ALT, TYPE, DP, VDP, VAF, sUMT, sVMT, sVMF, QUAL, FILTER)
          lenAlleles = len(alleles)
 
+         # write to variants file if greater than equal to cutoff
+         if fQUAL >= cutoff:
+            outVariants.write('\t'.join(tempVar)+'\n')
+         elif fQUAL >= minCutoff[TYPE.upper()]: ## Write to low-PI file if matching the thresholds
+            outLowPi.write(sampleName+'\t'+'\t'.join(tempVar)+'\n')
+            
          # if current chrom and position equal to last line, append it for potential multi-allelic output
          if lenAlleles == 0 or (CHROM == lastCHROM and POS == lastPOS):
             alleles.append(currentAllele)
