@@ -142,6 +142,8 @@ def consHqMT(oneBC, mtThreshold):
    cons = ''
    # find the majority base(s) whose proportion in the MT >= mtThreshold. NOTE: mtThreshold must be > 0.5 to ensure only one cons 
    for base in oneBC:
+      if base == 'all':
+         continue
       pCons = 1.0 * oneBC[base] / totalCnt if totalCnt > 0 else 0.0
       if pCons >= mtThreshold:
          cons = base
@@ -157,6 +159,8 @@ def consAllMT(readList, mtThreshold):
    cons = ''
    # find the majority base(s) whose proportion in the MT >= mtThreshold. NOTE: mtThreshold must be > 0.5 to ensure only one cons
    for base in readList:
+      if base == 'all': ## just a counter
+         continue
       pCons = 1.0 * readList[base] / totalCnt if totalCnt > 0 else 0.0
       if pCons >= mtThreshold:
          cons = base
@@ -448,7 +452,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
                bcDictHq[BC][readid] = readinfo
                # store base level information to avoid looping over read ids again
                bcDictHqBase[BC][base]+=1
-               bcDictHqBase[BC]['all']+1
+               bcDictHqBase[BC]['all']+=1
                usedFrag+=1 # used fragments
                
             elif base == bcDictHq[BC][readid][0] or base in ['N', '*']:
@@ -513,7 +517,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
    else:
       bcToKeep = [bc for bc in bcDictHq.iterkeys() if len(bcDictHq[bc]) >= 2]
 
-   if len(bcToKeep) <= minTotalUMI: 
+   if len(bcToKeep) <= minTotalUMI:
       out_long = '\t'.join([chrom, pos, origRef] + ['0'] * (_num_cols_ - 4) + ['LM']) + '\n'
       out_bkg = ''
    else:
@@ -526,16 +530,20 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
          # get consensus call of the UMI family
          consHq = consHqMT(bcDictHqBase[bc], mtThreshold)
          consAll = consAllMT(bcDictAll[bc], mtThreshold)
-         cons = consHq if consHq == consAll else ''   
-
+         cons = consHq if consHq == consAll else ''
+         
          # count number of reads in concordant/discordant with consensus
          for base in bcDictHqBase[bc]:
+            if base == 'all': ## just a counter
+               continue
             if base == cons:
                hqAgree[base] += bcDictHqBase[bc][base]
             else:
                hqDisagree[base] += bcDictHqBase[bc][base]
    
          for base in bcDictAll[bc]:
+            if base == 'all': ## just a counter
+               continue
             if base == cons:
                allAgree[base] += bcDictAll[bc][base]
             else:
@@ -908,7 +916,7 @@ def main(args):
    templocList = locList[0:100]
    # run Python multiprocessing module
    pool = multiprocessing.Pool(processes=args.nCPU)
-   results = [pool.apply_async(vc_wrapper, args=(args.bamName, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, args.refGenome, args.minAltUMI, args.maxAltAllele)) for x in locList]
+   results = [pool.apply_async(vc_wrapper, args=(args.bamName, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, args.refGenome, args.minAltUMI, args.maxAltAllele)) for x in templocList]
    # clear finished pool
    pool.close()
    pool.join()
