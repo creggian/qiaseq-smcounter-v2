@@ -8,7 +8,7 @@ import subprocess
 import time
 import operator
 import multiprocessing
-from collections import defaultdict, Counter
+from collections import defaultdict
 import random
 import traceback
 
@@ -16,7 +16,7 @@ import traceback
 import argparse
 import pysam
 import scipy.stats
-import statistics
+import numpy
 
 codePath = '/home/qiauser/qiaseq-smcounter-v2/'
 
@@ -278,16 +278,21 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
    hqDisagree = defaultdict(int)
    allAgree = defaultdict(int)
    allDisagree = defaultdict(int)
-
    rpbCnt = defaultdict(list)
 
    # output 
    out_long = ''
-
    # get reference base
    refseq = pysam.FastaFile(refg)
    origRef = refseq.fetch(reference=chrom, start=int(pos)-1, end=int(pos))
    origRef = origRef.upper()
+   # splitting hpInfo here to avoid splitting inside the loop below
+   hpInfoTmp = hpInfo.strip().split(';')
+
+   sMtConsByBase['A'] = 0
+   sMtConsByBase['T'] = 0
+   sMtConsByBase['G'] = 0
+   sMtConsByBase['C'] = 0
 
    # pile up reads
    for read in samfile.pileup(region = chrom + ':' + pos + ':' + pos, truncate=True, max_depth=1000000000, stepper='nofilter'):
@@ -367,7 +372,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
          if hpInfo == '.':
             hpCovered = True
          else:
-            (hpChrom, hpStart, hpEnd, totalHpLen) = hpInfo.strip().split(';') 
+            (hpChrom, hpStart, hpEnd, totalHpLen) = hpInfoTmp
             if astart < int(hpStart) - 1 and aend > int(hpEnd) + 1:
                hpCovered = True
             else:
@@ -461,9 +466,10 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
                   concordPairCnt[base] += 1
             else:
                # decrement fragment and base count
-               usedFrag-=1               
+               usedFrag-=1
                bcDictHqBase[BC][bcDictHq[BC][readid][0]]-=1
-               del bcDictHq[BC][readid]               
+               bcDictHqBase[BC]['all']-=1
+               del bcDictHq[BC][readid]
                discordPairCnt[base] += 1
 
          # in non-HP region, include all reads for consensus. In HP region, including only the reads covering the HP. 
@@ -476,7 +482,6 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
 
    # total number of MT, fragments, reads, including those dropped from analysis
    allMT = len(allBcDict)
-
    # gradually drop 1 read MTs
    bcToKeep = []
    # rpb < 2: no MT is dropped
@@ -573,7 +578,6 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
       sortedList = sorted(sMtConsByBase.items(), key=operator.itemgetter(1), reverse=True)
       firstAlt = True
       altCnt = 0
-
       # start multi-allelic loop
       for alleleInd in range(len(sortedList)):
          maxBase = sortedList[alleleInd][0]
@@ -623,11 +627,11 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
 
          if sMtConsByBase[origRef] >= 3 and sMtConsByBase[origAlt] >= 3:
             refRppUmiN = sMtConsByBase[origRef]
-            refRppUmiMean = statistics.mean(rpbCnt[origRef]) 
-            refRppUmiSd = statistics.stdev(rpbCnt[origRef]) 
+            refRppUmiMean = numpy.mean(rpbCnt[origRef])
+            refRppUmiSd = numpy.std(rpbCnt[origRef])
             altRppUmiN = sMtConsByBase[origAlt]
-            altRppUmiMean = statistics.mean(rpbCnt[origAlt]) 
-            altRppUmiSd = statistics.stdev(rpbCnt[origAlt]) 
+            altRppUmiMean = numpy.mean(rpbCnt[origAlt])
+            altRppUmiSd = numpy.std(rpbCnt[origAlt])
             sp = ( ((refRppUmiN-1) * refRppUmiSd**2 + (altRppUmiN-1) * altRppUmiSd**2) / (refRppUmiN + altRppUmiN-2) ) ** 0.5
             RppEffSize = (refRppUmiMean - altRppUmiMean) / (sp * (1.0/refRppUmiN + 1.0/altRppUmiN) ** 0.5) if sp > 0 else 1000.0
          else:
@@ -913,23 +917,20 @@ def main(args):
    # set primer side
    primerSide = 'R1' if args.primerSide == 1 else 'R2'
 
-   templocList = locList[0:100]
    # run Python multiprocessing module
    pool = multiprocessing.Pool(processes=args.nCPU)
-   results = [pool.apply_async(vc_wrapper, args=(args.bamName, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, args.refGenome, args.minAltUMI, args.maxAltAllele)) for x in templocList]
+   results = [pool.apply_async(vc_wrapper, args=(args.bamName, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, args.refGenome, args.minAltUMI, args.maxAltAllele)) for x in locList]
    # clear finished pool
    pool.close()
    pool.join()
    # get results - a list of tuples of 2 strings
    output = [p.get() for p in results]
-
    # check for exceptions thrown by vc()
    for idx in range(len(output)):
       line,bg = output[idx]
       if line.startswith("Exception thrown!"):
          print(line)
          raise Exception("Exception thrown in vc() at location: " + str(locList[idx]))
-
 
    outfile_long = open('intermediate/nopval.' + args.prefix + '.VariantList.long.txt', 'w')
    bkgFileName = 'intermediate/bkg.' + args.prefix + '.txt'

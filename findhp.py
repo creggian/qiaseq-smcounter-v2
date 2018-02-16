@@ -9,10 +9,6 @@ import sys
 import pysam
 from collections import defaultdict
 
-#refg = '/mnt/webserver/datadisk/varcall/frequentlyUsedFiles/ucsc.hg19.fasta'
-#refg = '/qgen/home/xuc/frequentlyUsedFiles/ucsc.hg19.fasta'
-#refg = '/home/xuc/frequentlyUsedFiles/ucsc.hg19.fasta'
-
 #-------------------------------------------------------------------------------------
 # find homopolymer sequences
 #-------------------------------------------------------------------------------------
