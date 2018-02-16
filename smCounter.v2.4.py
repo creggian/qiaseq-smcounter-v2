@@ -18,11 +18,11 @@ import pysam
 import scipy.stats
 import numpy
 
-codePath = '/home/qiauser/qiaseq-smcounter-v2/'
+codePath = os.path.dirname(os.path.abspath(__file__))
 
-homopolymerCode = codePath + 'findhp.py'
-pValCode = codePath + 'getPvalue.v2.4.R'
-vcfCode = codePath + 'makeVcf.v2.4.py'
+homopolymerCode = os.path.join(codePath,'findhp.py')
+pValCode = os.path.join(codePath,'getPvalue.v2.4.R')
+vcfCode = os.path.join(codePath,'makeVcf.v2.4.py')
 
 atgc = ['A', 'T', 'G', 'C']
 seed = 10262016
