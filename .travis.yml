@@ -1,0 +1,14 @@
+sudo: required
+
+language: python
+
+services:
+  - docker
+
+before install:
+  - docker pull rpadmanabhan9/qiaseq-dna:smcounter-v2
+  - mkdir test_v2
+
+script:
+  - sudo docker run --name myqiatest -it -d -v $(pwd)/test_v2/:/home/qiauser/test_v2/ rpadmanabhan9/qiaseq-dna:smcounter-v2 bash -c "cd /srv/qgen/code/; git clone https://github.com/qiaseq/qiaseq-smcounter-v2.git; cd qiaseq-smcounter-v2; bash test_smcounterv2.sh;"
+  
