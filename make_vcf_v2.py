@@ -140,7 +140,7 @@ def main(runPath, outlong, sampleName):
    outAll = open(sampleName + '.smCounter.all.txt', 'w')
    outVariants = open(sampleName + '.smCounter.cut.txt','w')
    outVcf = open(sampleName + '.smCounter.cut.vcf','w')
-   outLowPi = open(sampleName + '.smCounter.GT12PI.txt','w')
+   outLowPi = open(sampleName + '.smCounter.lowQ.txt','w')
    
    cutoff = 6
    minCutoff = {'INDEL': 2.5,'SNP':5} ## Cutoff for the low-PI file
