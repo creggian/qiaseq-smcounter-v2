@@ -21,8 +21,8 @@ import numpy
 codePath = os.path.dirname(os.path.abspath(__file__))
 
 homopolymerCode = os.path.join(codePath,'findhp.py')
-pValCode = os.path.join(codePath,'getPvalue.v2.4.R')
-vcfCode = os.path.join(codePath,'makeVcf.v2.4.py')
+pValCode = os.path.join(codePath,'get_pvalue_v2.R')
+vcfCode = os.path.join(codePath,'make_vcf_v2.py')
 
 atgc = ['A', 'T', 'G', 'C']
 seed = 10262016
@@ -983,7 +983,7 @@ if __name__ == "__main__":
    parser.add_argument('--runPath', default=None, help='path to working directory')
    parser.add_argument('--bedName', default=None, help='BED file')
    parser.add_argument('--bamName', default=None, help='BAM file')
-   parser.add_argument('--prefix', default=None, help='file name prefix')
+   parser.add_argument('--outPrefix', default=None, help='file name prefix')
    parser.add_argument('--nCPU', type=int, default=1, help='number of CPU to use in parallel')
    parser.add_argument('--minBQ', type=int, default=25, help='minimum base quality allowed for analysis')
    parser.add_argument('--minMQ', type=int, default=50, help='minimum mapping quality allowed for analysis')
