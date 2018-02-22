@@ -795,24 +795,66 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
    
    return (out_long, out_bkg)
 
+#----------------------------------------------------------------------------------------------
+# global for argument parsing (hack that works when calling from either command line or pipeline)
+#------------------------------------------------------------------------------------------------
+parser = None
+def argParseInit():  # this is done inside a function because multiprocessing module imports the script
+   global parser
+   parser = argparse.ArgumentParser(description='Variant calling using molecular barcodes')
+   parser.add_argument('--runPath', default=None, help='path to working directory')
+   parser.add_argument('--bedTarget', default=None, help='BED file')
+   parser.add_argument('--bamFile', default=None, help='BAM file')
+   parser.add_argument('--outPrefix', default=None, help='file name prefix')
+   parser.add_argument('--nCPU', type=int, default=1, help='number of CPU to use in parallel')
+   parser.add_argument('--minBQ', type=int, default=25, help='minimum base quality allowed for analysis')
+   parser.add_argument('--minMQ', type=int, default=50, help='minimum mapping quality allowed for analysis')
+   parser.add_argument('--hpLen', type=int, default=10, help='Minimum length for homopolymers')
+   parser.add_argument('--mismatchThr', type=float, default=6.0, help='average number of mismatches per 100 bases allowed')
+   parser.add_argument('--primerDist', type=int, default=2, help='filter variants that are within X bases to primer')
+   parser.add_argument('--mtThreshold', type=float, default=0.8, help='threshold on read proportion to determine MT level consensus')
+   parser.add_argument('--rpb', type=float, default=0.0, help='mean read pairs per UMI; default at 0 and will be calculated')
+   parser.add_argument('--isRna', action = 'store_true', help='RNAseq varinat calling only; default is DNAseq')
+   parser.add_argument('--primerSide', type=int, default=1, help='read end that includes the primer; default is 1')
+   parser.add_argument('--minAltUMI', type=int, default=3, help='minimum requirement of ALT UMIs; default is 3')
+   parser.add_argument('--maxAltAllele', type=int, default=2, help='maximum ALT alleles that meet minAltUMI to be reported; default is 2 (tri-allelic variants)')
+   parser.add_argument('--refGenome',type=str,help='Path to the reference fasta file')
+   parser.add_argument('--repBed',type=str,help='Path to the simpleRepeat bed file')
+   parser.add_argument('--srBed',type=str,help='Path to the full repeat bed file')
 
 #--------------------------------------------------------------------------------------
 # main function
 #--------------------------------------------------------------------------------------
 def main(args):
-   # change working directory to runDir and make output directories 
-   os.chdir(args.runPath)
-   # make /intermediate directory to keep the long output
-   if not os.path.exists('intermediate'):
-      os.makedirs('intermediate')
    # log run start
    timeStart = datetime.datetime.now()
    print("started at " + str(timeStart))
+   
+   # if argument parser global not assigned yet, initialize it
+   if parser == None:
+      argParseInit()
+   
+   # get arguments passed in via a lambda object (e.g. from upstream pipeline)
+   if type(args) is not argparse.Namespace:
+      argsList = []
+      for argName, argVal in args.iteritems():
+         argsList.append("--{0}={1}".format(argName, argVal))
+      args = parser.parse_args(argsList)
+   
+   for argName, argVal in vars(args).iteritems():
+      print(argName, argVal)
+      
+   # change working directory to runDir and make output directories
+   if args.runPath != None:
+      os.chdir(args.runPath)
+   # make /intermediate directory to keep the long output
+   if not os.path.exists('intermediate'):
+      os.makedirs('intermediate')
 
    # intersect repeats and target regions   
-   subprocess.check_call('python ' + homopolymerCode + ' ' + args.bedName + ' hp.roi.bed 6' + ' ' + args.refGenome , shell=True)
-   subprocess.check_call('bedtools intersect -a ' + args.repBed + ' -b ' + args.bedName + ' | bedtools sort -i > rep.roi.bed', shell=True)
-   subprocess.check_call('bedtools intersect -a ' + args.srBed +  ' -b ' + args.bedName + ' | bedtools sort -i > sr.roi.bed', shell=True)
+   subprocess.check_call('python ' + homopolymerCode + ' ' + args.bedTarget + ' hp.roi.bed 6' + ' ' + args.refGenome , shell=True)
+   subprocess.check_call('bedtools intersect -a ' + args.repBed + ' -b ' + args.bedTarget + ' | bedtools sort -i > rep.roi.bed', shell=True)
+   subprocess.check_call('bedtools intersect -a ' + args.srBed +  ' -b ' + args.bedTarget + ' | bedtools sort -i > sr.roi.bed', shell=True)
 
    # homopolymer 
    hpRegion = defaultdict(list)
@@ -862,8 +904,10 @@ def main(args):
 
    # read in bed file and create a list of positions, annotated with repetitive region
    locList = []
-   with open(args.bedName,'r') as IN:
+   with open(args.bedTarget,'r') as IN:
       for line in IN:
+         if line.startswith('track name='):
+            continue
          lineList = line.strip().split('\t')
          chrom = lineList[0]
          regionStart = int(lineList[1]) + 1   # target region starts from 1-base after 
@@ -908,7 +952,7 @@ def main(args):
       rpb = -1
    else:
       if args.rpb == 0.0:
-         rpb = getMeanRpb(args.bamName, args.isRna) 
+         rpb = getMeanRpb(args.bamFile, args.isRna) 
          print("rpb = " + str(round(rpb,1)) + ", computed by smCounter")
       else:
          rpb = args.rpb
@@ -919,7 +963,7 @@ def main(args):
 
    # run Python multiprocessing module
    pool = multiprocessing.Pool(processes=args.nCPU)
-   results = [pool.apply_async(vc_wrapper, args=(args.bamName, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, args.refGenome, args.minAltUMI, args.maxAltAllele)) for x in locList]
+   results = [pool.apply_async(vc_wrapper, args=(args.bamFile, x[0], x[1], x[2], x[3], x[4], x[5], args.minBQ, args.minMQ, args.hpLen, args.mismatchThr, args.primerDist, args.mtThreshold, rpb, primerSide, args.refGenome, args.minAltUMI, args.maxAltAllele)) for x in locList]
    # clear finished pool
    pool.close()
    pool.join()
@@ -932,8 +976,8 @@ def main(args):
          print(line)
          raise Exception("Exception thrown in vc() at location: " + str(locList[idx]))
 
-   outfile_long = open('intermediate/nopval.' + args.prefix + '.VariantList.long.txt', 'w')
-   bkgFileName = 'intermediate/bkg.' + args.prefix + '.txt'
+   outfile_long = open('intermediate/nopval.' + args.outPrefix + '.VariantList.long.txt', 'w')
+   bkgFileName = 'intermediate/bkg.' + args.outPrefix + '.txt'
    outfile_bkg = open(bkgFileName, 'w')
 
    header_1 = ['CHROM', 'POS', 'REF', 'ALT', 'TYPE', 'sUMT', 'sForUMT', 'sRevUMT', 'sVMT', 'sForVMT', 'sRevVMT', 'sVMF', 'sForVMF', 'sRevVMF', 'VDP', 'VAF', 'RefForPrimer', 'RefRevPrimer', 'primerOR', 'pLowQ', 'hqUmiEff', 'allUmiEff', 'refMeanRpb', 'altMeanRpb', 'rpbEffectSize', 'repType', 'hpInfo', 'simpleRepeatInfo', 'tandemRepeatInfo', 'DP', 'FR', 'MT', 'UFR', 'sUMT_A', 'sUMT_T', 'sUMT_G', 'sUMT_C', 'FILTER']
@@ -952,15 +996,15 @@ def main(args):
 
    # calculate p-value
    print("Calculating p-values at " + str(datetime.datetime.now()) + "\n")
-   outfile1 = 'intermediate/nopval.' + args.prefix + '.VariantList.long.txt'
+   outfile1 = 'intermediate/nopval.' + args.outPrefix + '.VariantList.long.txt'
    print("completed p-values at " + str(datetime.datetime.now()) + "\n")
 
-   outfile2 = 'intermediate/' + args.prefix + '.VariantList.long.txt'
+   outfile2 = 'intermediate/' + args.outPrefix + '.VariantList.long.txt'
    pValCmd = ' '.join(['Rscript', pValCode, args.runPath, outfile1, bkgFileName, str(seed), str(nsim), outfile2, str(rpb), str(args.minAltUMI)])
    subprocess.check_call(pValCmd, shell=True)
 
    # make VCFs
-   vcfCmd = ' '.join(['python', vcfCode, args.runPath, outfile2, args.prefix])
+   vcfCmd = ' '.join(['python', vcfCode, args.runPath, outfile2, args.outPrefix])
    subprocess.check_call(vcfCmd, shell=True)
 
    # remove intermediate files
@@ -972,32 +1016,17 @@ def main(args):
    # log run completion
    timeEnd = datetime.datetime.now()
    print("completed running at " + str(timeEnd) + "\n")
-   print("total time: "+ str(timeEnd-timeStart) + "\n")   
-
+   print("total time: "+ str(timeEnd-timeStart) + "\n")  
    
-#----------------------------------------------------------------------------------------------
 #pythonism to run from the command line
 #----------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------
 if __name__ == "__main__":
-   parser = argparse.ArgumentParser(description='Variant calling using molecular barcodes')
-   parser.add_argument('--runPath', default=None, help='path to working directory')
-   parser.add_argument('--bedName', default=None, help='BED file')
-   parser.add_argument('--bamName', default=None, help='BAM file')
-   parser.add_argument('--outPrefix', default=None, help='file name prefix')
-   parser.add_argument('--nCPU', type=int, default=1, help='number of CPU to use in parallel')
-   parser.add_argument('--minBQ', type=int, default=25, help='minimum base quality allowed for analysis')
-   parser.add_argument('--minMQ', type=int, default=50, help='minimum mapping quality allowed for analysis')
-   parser.add_argument('--hpLen', type=int, default=10, help='Minimum length for homopolymers')
-   parser.add_argument('--mismatchThr', type=float, default=6.0, help='average number of mismatches per 100 bases allowed')
-   parser.add_argument('--primerDist', type=int, default=2, help='filter variants that are within X bases to primer')
-   parser.add_argument('--mtThreshold', type=float, default=0.8, help='threshold on read proportion to determine MT level consensus')
-   parser.add_argument('--rpb', type=float, default=0.0, help='mean read pairs per UMI; default at 0 and will be calculated')
-   parser.add_argument('--isRna', action = 'store_true', help='RNAseq varinat calling only; default is DNAseq')
-   parser.add_argument('--primerSide', type=int, default=1, help='read end that includes the primer; default is 1')
-   parser.add_argument('--minAltUMI', type=int, default=3, help='minimum requirement of ALT UMIs; default is 3')
-   parser.add_argument('--maxAltAllele', type=int, default=2, help='maximum ALT alleles that meet minAltUMI to be reported; default is 2 (tri-allelic variants)')
-   parser.add_argument('--refGenome',type=str,help='Path to the reference fasta file')
-   parser.add_argument('--repBed',type=str,help='Path to the simpleRepeat bed file')
-   parser.add_argument('--srBed',type=str,help='Path to the full repeat bed file')
+   # init the argumet parser
+   argParseInit()
+   
+   # get command line arguments
    args = parser.parse_args()
+   
+   # call main program   
    main(args)

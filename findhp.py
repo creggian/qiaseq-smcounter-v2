@@ -15,6 +15,8 @@ from collections import defaultdict
 def findhp(bedName, outName, minLength,refg):
    outfile = open(outName, 'w')
    for line in open(bedName, 'r'):
+      if line.startswith('track name='):
+         continue
       lineList = line.strip().split('\t')
       chrom = lineList[0]
       start = int(lineList[1])
