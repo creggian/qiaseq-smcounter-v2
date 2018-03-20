@@ -44,32 +44,34 @@ def assign_ad(uumi,vumi):
 #--------------------------------------------------------------------------------------
 # function to handle normal variants
 #--------------------------------------------------------------------------------------
-def biAllelicVar(alleles, RepRegion, outVcf,cutoff):
+def biAllelicVar(alleles, RepRegion, outVcf, outVariants):
    ID = '.'
    chrom, pos, ref, alt, typ, dp, vdp, vaf, umt, vmt, vmf, qual, fqual, fltr = alleles[0]
-   if fqual >= cutoff:         
-      INFO = ';'.join(
-         ['TYPE=' +typ,'RepRegion=' + RepRegion,'DP='+dp,'UMT='+umt,'VMT='+vmt,
-          'VMF='+vmf]
-      )
-      if vmf > 0.95: ## Treat as Het 
-         genotype = '1/1'
-      else:
-         genotype = '0/1'
 
-      FORMAT = 'GT:AD:VF'
-      gt = assign_gt(alt,chrom,vmf)
-      ad = assign_ad(umt,vmt)         
-      SAMPLE = ':'.join([genotype,ad,vmf])
-      vcfLine = '\t'.join([chrom, pos, ID, ref, alt, qual, fltr, INFO, FORMAT, SAMPLE]) + '\n'
-      outVcf.write(vcfLine)
+   INFO = ';'.join(
+      ['TYPE=' +typ,'RepRegion=' + RepRegion,'DP='+dp,'UMT='+umt,'VMT='+vmt,
+      'VMF='+vmf]
+      )
+   if vmf > 0.95: ## Treat as Het 
+      genotype = '1/1'
+   else:
+      genotype = '0/1'
+
+   FORMAT = 'GT:AD:VF'
+   gt = assign_gt(alt,chrom,vmf)      
+   ad = assign_ad(umt,vmt)         
+   SAMPLE = ':'.join([genotype,ad,vmf])
+   vcfLine = '\t'.join([chrom, pos, ID, ref, alt, qual, fltr, INFO, FORMAT, SAMPLE]) + '\n'
+   outVcf.write(vcfLine)
+   cutVarLine = '\t'.join([chrom, pos, ref, alt, typ, dp, vdp, vaf, umt, vmt, vmf, qual, fltr]) + '\n'
+   outVariants.write(cutVarLine)
 
 #--------------------------------------------------------------------------------------
 # function to handle multi-allelic variants
 #--------------------------------------------------------------------------------------
-def multiAllelicVar(alleles, RepRegion, outVcf,cutoff):
+def multiAllelicVar(alleles, RepRegion, outVcf, outVariants):
   ID = '.'
-  tmpAlleles = [x for x in alleles if x[-2] >= cutoff and x[-1] == 'PASS']
+  tmpAlleles = [x for x in alleles if x[-1] == 'PASS']
   lenTmpAlleles = len(tmpAlleles)
   if lenTmpAlleles == 0:
      pass
@@ -85,13 +87,16 @@ def multiAllelicVar(alleles, RepRegion, outVcf,cutoff):
      SAMPLE = ':'.join([gt,ad,vmf])     
      vcfLine = '\t'.join([chrom, pos, ID, ref, alt, qual, fltr, INFO, FORMAT, SAMPLE]) + '\n'
      outVcf.write(vcfLine)
+     cutVarLine = '\t'.join([chrom, pos, ref, alt, typ, dp, vdp, vaf, umt, vmt, vmf, qual, fltr]) + '\n'
+     outVariants.write(cutVarLine)
   else:
-     VDPs, VAFs, VMTs, VMFs, QUALs, fQUALs, TYPEs, REFs, ALTs, DPs = [], [], [], [], [], [], [], [], [], []
+     VDPs, VAFs, VMTs, UMTs, VMFs, QUALs, fQUALs, TYPEs, REFs, ALTs, DPs = [], [], [], [], [], [], [], [], [], [], [], []
      for allele in tmpAlleles:
         chrom, pos, ref, alt, typ, dp, vdp, vaf, umt, vmt, vmf, qual, fqual, fltr = allele
         VDPs.append(vdp)
         VAFs.append(vaf)
         VMTs.append(vmt)
+        UMTs.append(umt)
         VMFs.append(vmf)
         QUALs.append(qual)
         TYPEs.append(typ)
@@ -99,6 +104,9 @@ def multiAllelicVar(alleles, RepRegion, outVcf,cutoff):
         ALTs.append(alt)
         fQUALs.append(fqual)
         DPs.append(dp)
+
+     # debug check
+     assert len(set(UMTs)) == 1, "The number of used UMIs at a site should be the same across all alleles"
 
      # align multiple alleles to the same REF if necessary
      if all(x==REFs[0] for x in REFs):
@@ -117,19 +125,20 @@ def multiAllelicVar(alleles, RepRegion, outVcf,cutoff):
      allVAFs = ','.join(VAFs)
      allVMTs = ','.join(VMTs)
      allVMFs = ','.join(VMFs)
-     allQUALs = ','.join(QUALs)
      allDPs = ','.join(DPs)
 
      INFO = ';'.join(
             ['TYPE=' +allTypes,'RepRegion=' + RepRegion,'DP='+allDPs,'UMT='+umt,'VMT='+allVMTs,
-             'VMF='+vmf]
+             'VMF='+allVMFs]
          )          
      FORMAT = 'GT:AD:VF' 
      gt = assign_gt(finalAlt,chrom,allVMFs)
      ad = assign_ad(umt,allVMTs)   
-     SAMPLE = ':'.join([gt,ad,vmf])
+     SAMPLE = ':'.join([gt,ad,allVMFs])
      vcfLine = '\t'.join([chrom, pos, ID, finalRef, finalAlt, newQual, 'PASS', INFO, FORMAT, SAMPLE]) + '\n'     
      outVcf.write(vcfLine)
+     cutVarLine = '\t'.join([chrom, pos, finalRef, finalAlt, allTypes, allDPs, allVDPs, allVAFs, umt, allVMTs, allVMFs, newQual,'PASS']) + '\n'
+     outVariants.write(cutVarLine)
 
 #--------------------------------------------------------------------------------------
 # main function
@@ -220,17 +229,14 @@ def main(runPath, outlong, sampleName):
 
          # rep types are separeted by ";" in the long output. Replace to "," to comply with VCF format
          RepRegion = repType.replace(';', ',')
-
          
          currentAllele = (CHROM, POS, REF, ALT, TYPE, DP, VDP, VAF, sUMT, sVMT, sVMF, QUAL, fQUAL, FILTER)
          tempVar = (CHROM, POS, REF, ALT, TYPE, DP, VDP, VAF, sUMT, sVMT, sVMF, QUAL, FILTER)
          lenAlleles = len(alleles)
 
-         # write to variants file if greater than equal to cutoff
-         if fQUAL >= cutoff:
-            outVariants.write('\t'.join(tempVar)+'\n')
-         elif fQUAL >= minCutoff[TYPE.upper()]: ## Write to low-PI file if matching the thresholds
+         if fQUAL < cutoff: ## Write to low-PI file
             outLowPi.write(sampleName+'\t'+'\t'.join(tempVar)+'\n')
+            continue
             
          # if current chrom and position equal to last line, append it for potential multi-allelic output
          if lenAlleles == 0 or (CHROM == lastCHROM and POS == lastPOS):
@@ -238,12 +244,12 @@ def main(runPath, outlong, sampleName):
 
          # for new chrom or position, if last variant is not multi-allelic, write to vcf directly
          elif lenAlleles == 1:
-            biAllelicVar(alleles, RepRegion, outVcf,cutoff)
+            biAllelicVar(alleles, RepRegion, outVcf, outVariants)
             alleles = [currentAllele]
 
          # if last variant is possible multi-allelic, combine and write as one 
          else:            
-            multiAllelicVar(alleles, RepRegion, outVcf,cutoff)
+            multiAllelicVar(alleles, RepRegion, outVcf, outVariants)
             alleles = [currentAllele]
 
          lastCHROM, lastPOS = CHROM, POS
@@ -251,9 +257,9 @@ def main(runPath, outlong, sampleName):
    # take care of the last line
    lenAlleles = len(alleles)
    if lenAlleles == 1:
-      biAllelicVar(alleles, RepRegion, outVcf,cutoff)
+      biAllelicVar(alleles, RepRegion, outVcf, outVariants)
    elif lenAlleles >= 2:
-      multiAllelicVar(alleles, RepRegion, outVcf,cutoff)
+      multiAllelicVar(alleles, RepRegion, outVcf, outVariants)
    else:
       pass
 
