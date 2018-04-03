@@ -24,7 +24,13 @@ def findhp(bedName, outName, minLength,refg):
 
       # get reference base
       refseq = pysam.FastaFile(refg)
-      origRef = refseq.fetch(reference=chrom, start=start-1-100, end=end + 100)
+      
+      if (start - 1 - 100) < 0:
+         start_coord = start
+      else:
+         start_coord = start - 1 - 100
+         
+      origRef = refseq.fetch(reference=chrom, start=start_coord, end=end + 100)
       origRef = origRef.upper()
 
       hpL = 0
