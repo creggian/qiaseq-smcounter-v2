@@ -51,16 +51,11 @@ def biAllelicVar(alleles, RepRegion, outVcf, outVariants):
    INFO = ';'.join(
       ['TYPE=' +typ,'RepRegion=' + RepRegion,'DP='+dp,'UMT='+umt,'VMT='+vmt,
       'VMF='+vmf]
-      )
-   if vmf > 0.95: ## Treat as Het 
-      genotype = '1/1'
-   else:
-      genotype = '0/1'
-
+      ) 
    FORMAT = 'GT:AD:VF'
    gt = assign_gt(alt,chrom,vmf)      
    ad = assign_ad(umt,vmt)         
-   SAMPLE = ':'.join([genotype,ad,vmf])
+   SAMPLE = ':'.join([gt,ad,vmf])
    vcfLine = '\t'.join([chrom, pos, ID, ref, alt, qual, fltr, INFO, FORMAT, SAMPLE]) + '\n'
    outVcf.write(vcfLine)
    cutVarLine = '\t'.join([chrom, pos, ref, alt, typ, dp, vdp, vaf, umt, vmt, vmf, qual, fltr]) + '\n'
