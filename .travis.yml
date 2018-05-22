@@ -10,4 +10,6 @@ before install:
   - mkdir test_v2
 
 script:
-  - sudo docker run --name myqiatest -it -d -v $(pwd)/test_v2/:/home/qiauser/test_v2/ rpadmanabhan9/qiaseq-dna:smcounter-v2 bash -c "cd /srv/qgen/code/; git clone https://github.com/qiaseq/qiaseq-smcounter-v2.git; cd qiaseq-smcounter-v2/tests/; bash test_smcounterv2.sh /srv/qgen/code/qiaseq-smcounter-v2;"  
+  - export BRANCH=$(if [ "$TRAVIS_PULL_REQUEST" == "false" ]; then echo $TRAVIS_BRANCH; else echo $TRAVIS_PULL_REQUEST_BRANCH; fi)
+  - echo "TRAVIS_BRANCH=$TRAVIS_BRANCH, PR=$PR, BRANCH=$BRANCH"   
+  - sudo docker run --name myqiatest -it -d -v $(pwd)/test_v2/:/home/qiauser/test_v2/ rpadmanabhan9/qiaseq-dna:smcounter-v2 bash -c "cd /srv/qgen/code/; git clone -b $BRANCH https://github.com/qiaseq/qiaseq-smcounter-v2.git; cd qiaseq-smcounter-v2/tests/; bash test_smcounterv2.sh /srv/qgen/code/qiaseq-smcounter-v2;"  
