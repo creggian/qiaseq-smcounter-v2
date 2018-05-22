@@ -107,7 +107,6 @@ output_bedgraph <- function(df,outfile,header,val_col="foo"){
    test <- c("lod","sumt")
    for (row in 1:nrow(df)) {
       val <- df[row,val_col]
-      print(val)
       chr <- df[row, "chr"]
       pos <- df[row, "pos"]
       if (is.null(prev_val)) {
