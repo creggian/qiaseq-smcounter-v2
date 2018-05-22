@@ -9,21 +9,29 @@ rm(list=ls())
 library(plyr)
 bkgErrorDistSimulation <- '/srv/qgen/data/annotation/bkg.error.v2.RData'
 
+##############################
+##       Parameters         ##
+##############################
 args <- commandArgs(TRUE)
 wd <- args[1]
 outlong <- args[2]
 bkgfile <- args[3]
 seed <- as.numeric(args[4])
 nsim <- as.numeric(args[5])
-outfile <- args[6]
-rpb <- as.numeric(args[7])
-minAltUMI <- as.numeric(args[8])
+outfile_pval <- args[6]
+outfile_bedgraph <- args[7]
+outprefix <- args[8]
+rpb <- as.numeric(args[9])
+minAltUMI <- as.numeric(args[10])
 min.mtDepth <- 1000
 
 # set working directory
 setwd(wd)
 set.seed(seed)
 
+##############################
+##       Functions          ##
+##############################
 # function to calculate standard deviation
 beta.sd <- function(a,b) sqrt(a*b) / ((a+b) * sqrt(a+b+1))
 # function to estimate a
@@ -47,6 +55,38 @@ calc.pval <- function(TYPE, REF, ALT, sForUMT, sRevUMT, sForVMT, sRevVMT, p.high
   }
   return(pval)
 }
+# function to find p-value
+pval <- function(n, x, p){
+  if(x >= 3){
+    tmp <- pbinom(q=x-1, size=n, prob=p, lower.tail=F)
+    pval <- ifelse(n==0, 1, mean(tmp, na.rm=T))
+  } else{
+    pval <- NA
+  }
+  return(pval)
+}
+
+# function to find the LOD
+lod <- function(n){
+  # high lod
+  low <- 3
+  up <- n
+  x.high <- max(3, round(0.005 * n))
+  while(up - low > 1){  
+    p <- pval(n, x.high, p.high)
+    if(p >= 1e-6){
+      low <- x.high
+      x.high <- ceiling(mean(c(x.high, up)))
+    } else{
+      up <- x.high
+      x.high <- floor(mean(c(x.high, low)))
+    }
+  }
+  lod.high <- x.high / n
+
+  return(lod.high)
+}
+
 
 # define constants
 cols <- c('chrom', 'pos', 'ref', 'AG', 'GA', 'CT', 'TC', 'AC', 'AT', 'CA', 'CG', 'GC', 'GT', 'TA', 'TG', 'neg.strand', 'pos.strand', 'all.smt')
@@ -108,8 +148,52 @@ if(is.na(mu.high) | is.na(n.high) | n.high < 100) {
    b.high <- calc.b(mu.high, sigma.high)
    p.high <- rbeta(n=nsim, shape1=a.high, shape2=b.high)
 }
-
 p.low <- c(rbeta(n=nsim-n0.low, shape1=a.ct.orig, shape2=b.ct.orig), rep(0, n0.low))
+
+# compute limit of detection (lod)  for binned sUMT values 
+# this is the lowest allele fraction variant which can be called for a given UMI depth at a site
+bin_width = 10
+all_sUMT_bin_vals <- seq(from = min(dat$sUMT), to = min(10000,max(dat$sUMT)), by = bin_width)
+all_sUMT_bins <- seq(from=1,to=length(all_sUMT_bin_vals),by=1)
+binned_lod_vals <- sapply(all_sUMTs_bin_vals, lod)
+lod_for_sUMT <- binned_lod_vals[floor((data$sUMT - min(data$sUMT) + bin_width)/bin_width)]
+# write to disk
+file_handle <- file(outfile_bedgraph)
+out <- sprintf("track type=bedGraph name=%s",outprefix)
+writeLines(out,file_handle)
+lod_df <- data.frame(chr=dat$CHROM,pos=dat$POS,lod=lod_for_sUMT)
+prev_lod <- NULL
+for (row in 1:nrow(lod_df)) {
+   lod <- lod_df[row, "lod"]
+   chr <- lod_df[row, "CHROM"]
+   pos <- lod_df[row,"POS"]
+   if (prev_lod == NULL) {
+      prev_lod <- lod
+      prev_chr <- chr
+      prev_pos <- pos
+      init_pos <- pos
+      next # skip first iteration of loop
+   }
+   else {
+      if (prev_chr != chr) {
+         out <- sprintf("%s\t%i\t%i\t%.3f"%(prev_chr,init_pos-1,prev_pos,prev_lod))
+      	 writeLines(out,file_handle)
+	 init_pos <- pos
+      }
+      elif (prev_lod != lod) {
+         out <- sprintf("%s\t%i\t%i\t%.3f"%(prev_chr,init_pos-1,prev_pos,prev_lod))
+      	 writeLines(out,file_handle)
+	 init_pos <- pos
+      }
+      prev_lod <- lod
+      prev_chr <- chr
+      prev_pos <- pos
+   }
+}
+# finish out last line of the file
+out = sprintf("%s\t%i\t%i\t%.3f"%(prev_chr,init_pos-1,prev_pos,prev_lod))
+writeLines(out,file_handle)
+close(file_handle)
 
 # compute p-values
 dat$sForUMT <- as.numeric(dat$sForUMT)
@@ -126,6 +210,6 @@ dat$logpval <- round(-log10(raw.pval), 2)
 
 # save to disk
 dat <- subset(dat, select=c(CHROM, POS, REF, ALT, TYPE, sUMT, sForUMT, sRevUMT, sVMT, sForVMT, sRevVMT, sVMF, sForVMF, sRevVMF, VDP, VAF, RefForPrimer, RefRevPrimer, primerOR, pLowQ, hqUmiEff, allUmiEff, refMeanRpb, altMeanRpb, rpbEffectSize, repType, hpInfo, simpleRepeatInfo, tandemRepeatInfo, DP, FR, MT, UFR, sUMT_A, sUMT_T, sUMT_G, sUMT_C, logpval, FILTER))
-write.table(dat, outfile, sep='\t', row.names=F, col.names=T, quote=F)
+write.table(dat, outfile_pval, sep='\t', row.names=F, col.names=T, quote=F)
 
 
