@@ -29,9 +29,10 @@ min.mtDepth <- 1000
 setwd(wd)
 set.seed(seed)
 
-##############################
-##       Functions          ##
-##############################
+##############################################
+########          Function            ########
+########         Definitions          ########
+##############################################
 # function to calculate standard deviation
 beta.sd <- function(a,b) sqrt(a*b) / ((a+b) * sqrt(a+b+1))
 # function to estimate a
@@ -57,6 +58,11 @@ calc.pval <- function(TYPE, REF, ALT, sForUMT, sRevUMT, sForVMT, sRevVMT, p.high
 }
 # function to find p-value
 pval <- function(n, x, p){
+#       @param int    n    :   The UMI depth at a particular site
+#       @param float  x    :   Number of variant UMIs at that site
+#       @param vector p    :   Vector of values simulated from the \
+#                              background error distribution of transitions 
+
   if(x >= 3){
     tmp <- pbinom(q=x-1, size=n, prob=p, lower.tail=F)
     pval <- ifelse(n==0, 1, mean(tmp, na.rm=T))
@@ -65,9 +71,10 @@ pval <- function(n, x, p){
   }
   return(pval)
 }
-
 # function to find the LOD
 lod <- function(n){
+#      @param   int n : The UMI depth to calculate the lod for
+
   # high lod
   low <- 3
   up <- n
@@ -86,8 +93,62 @@ lod <- function(n){
 
   return(lod.high)
 }
+# function to collapse same value(lod/coverage) columns
+# and write a bedgraph file
+output_bedgraph <- function(df,outfile,header,val_col="foo"){
+#                  @param dataframe df      : The input dataframe to iterate over
+#                  @param string    val_col : The column name of the value in the bedgraph
+#                  @param string    outfile : The output file path
+#                  @param string    header  : The header for the bedgraph file
+
+   file_handle <- file(outfile,"w")
+   cat(header,file=file_handle)
+   prev_val <- NULL
+   test <- c("lod","sumt")
+   for (row in 1:nrow(df)) {
+      val <- df[row,val_col]
+      print(val)
+      chr <- df[row, "chr"]
+      pos <- df[row, "pos"]
+      if (is.null(prev_val)) {
+	 prev_val <- val
+	 prev_chr <- chr
+	 prev_pos <- pos
+	 init_pos <- pos
+	 next # skip first iteration of loop
+      }
+      else {
+	 if (prev_chr != chr) {
+	    out <- sprintf("%s\t%i\t%i\t%f\n",prev_chr,init_pos-1,prev_pos,prev_val)
+            out <- paste(prev_chr,"\t",init_pos-1,"\t",prev_pos,"\t",round(prev_val,5),"\n")
+            cat(out,file=file_handle)
+	    init_pos <- pos
+	 }
+	 else if (prev_val != val) {
+	    out <- sprintf("%s\t%i\t%i\t%f\n",prev_chr,init_pos-1,prev_pos,prev_val)
+            out <- paste(prev_chr,"\t",init_pos-1,"\t",prev_pos,"\t",round(prev_val,5),"\n")
+            cat(out,file=file_handle)
+	    init_pos <- pos
+	 }
+	 prev_val <- val
+	 prev_chr <- chr
+	 prev_pos <- pos
+      }
+   }
+   # finish out last line of the file
+   out = sprintf("%s\t%i\t%i\t%f\n",prev_chr,init_pos-1,prev_pos,prev_val)
+   out <- paste(prev_chr,"\t",init_pos-1,"\t",prev_pos,"\t",round(prev_val,3),"\n")
+   cat(out,file=file_handle)
+   close(file_handle)
+}
+################ END OF FUNCTIONS #####################
 
 
+#########################################################
+########       Begin imperative computations     ########
+########                  And                    ########
+########         Writing out output files        ########
+#########################################################
 # define constants
 cols <- c('chrom', 'pos', 'ref', 'AG', 'GA', 'CT', 'TC', 'AC', 'AT', 'CA', 'CG', 'GC', 'GT', 'TA', 'TG', 'neg.strand', 'pos.strand', 'all.smt')
 out <- NULL
@@ -155,54 +216,27 @@ p.low <- c(rbeta(n=nsim-n0.low, shape1=a.ct.orig, shape2=b.ct.orig), rep(0, n0.l
 bin_width = 10
 all_sUMT_bin_vals <- seq(from = min(dat$sUMT), to = min(10000,max(dat$sUMT)), by = bin_width)
 all_sUMT_bins <- seq(from=1,to=length(all_sUMT_bin_vals),by=1)
-binned_lod_vals <- sapply(all_sUMTs_bin_vals, lod)
-lod_for_sUMT <- binned_lod_vals[floor((data$sUMT - min(data$sUMT) + bin_width)/bin_width)]
-# write to disk
-file_handle <- file(outfile_bedgraph)
-out <- sprintf("track type=bedGraph name=%s",outprefix)
-writeLines(out,file_handle)
+binned_lod_vals <- sapply(all_sUMT_bin_vals, lod)
+lod_for_sUMT <- binned_lod_vals[floor((dat$sUMT - min(dat$sUMT) + bin_width)/bin_width)]
+# write lod bedgraph file
 lod_df <- data.frame(chr=dat$CHROM,pos=dat$POS,lod=lod_for_sUMT)
-prev_lod <- NULL
-for (row in 1:nrow(lod_df)) {
-   lod <- lod_df[row, "lod"]
-   chr <- lod_df[row, "CHROM"]
-   pos <- lod_df[row,"POS"]
-   if (prev_lod == NULL) {
-      prev_lod <- lod
-      prev_chr <- chr
-      prev_pos <- pos
-      init_pos <- pos
-      next # skip first iteration of loop
-   }
-   else {
-      if (prev_chr != chr) {
-         out <- sprintf("%s\t%i\t%i\t%.3f"%(prev_chr,init_pos-1,prev_pos,prev_lod))
-      	 writeLines(out,file_handle)
-	 init_pos <- pos
-      }
-      elif (prev_lod != lod) {
-         out <- sprintf("%s\t%i\t%i\t%.3f"%(prev_chr,init_pos-1,prev_pos,prev_lod))
-      	 writeLines(out,file_handle)
-	 init_pos <- pos
-      }
-      prev_lod <- lod
-      prev_chr <- chr
-      prev_pos <- pos
-   }
-}
-# finish out last line of the file
-out = sprintf("%s\t%i\t%i\t%.3f"%(prev_chr,init_pos-1,prev_pos,prev_lod))
-writeLines(out,file_handle)
-close(file_handle)
+header <- sprintf("track type=bedGraph name='%s.lod'\n",outprefix)
+outfile <- sprintf("%s.umi_depths.lod.bedgraph",outprefix)
+output_bedgraph(lod_df,outfile,header,"lod")
+# write sUMT bedgraph file
+sumt_df <- data.frame(chr=dat$CHROM,pos=dat$POS,sumt=dat$sUMT)
+header <- sprintf("track type=bedGraph name='%s.umi_depths.variant-calling-input'\n",outprefix)
+outfile <- sprintf("%s.umi_depths.variant-calling-input.bedgraph",outprefix)
+output_bedgraph(sumt_df,outfile,header,"sumt")
 
 # compute p-values
 dat$sForUMT <- as.numeric(dat$sForUMT)
 dat$sRevUMT <- as.numeric(dat$sRevUMT)
 dat$sForVMT <- as.numeric(dat$sForVMT)
 dat$sRevVMT <- as.numeric(dat$sRevVMT)
-
 tmp <- subset(dat, select=c(TYPE, REF, ALT, sForUMT, sForVMT, sRevUMT, sRevVMT))
 pval <- mdply(tmp, calc.pval, p.high.final=p.high, p.low.final=p.low)
+
 # set mininum at 1e-200 to avoid log(0)
 raw.pval <- pmax(1e-200, pval$V1)
 # take -log10
