@@ -828,7 +828,7 @@ def argParseInit():  # this is done inside a function because multiprocessing mo
 def main(args):
    # log run start
    timeStart = datetime.datetime.now()
-   print("started at " + str(timeStart))
+   print("Started at " + str(timeStart))
    
    # if argument parser global not assigned yet, initialize it
    if parser == None:
@@ -995,13 +995,14 @@ def main(args):
    outfile_bkg.close()
 
    # calculate p-value
-   print("Calculating p-values at " + str(datetime.datetime.now()) + "\n")
+   print("Started calculating p-values at " + str(datetime.datetime.now()) + "\n")
    outfile1 = 'intermediate/nopval.' + args.outPrefix + '.VariantList.long.txt'
-   print("completed p-values at " + str(datetime.datetime.now()) + "\n")
 
    outfile2 = 'intermediate/' + args.outPrefix + '.VariantList.long.txt'
-   pValCmd = ' '.join(['Rscript', pValCode, args.runPath, outfile1, bkgFileName, str(seed), str(nsim), outfile2, str(rpb), str(args.minAltUMI)])
+   outfile_lod = 'intermediate/' + args.outPrefix + '.umi_depths.lod.bedgraph'
+   pValCmd = ' '.join(['Rscript', pValCode, args.runPath, outfile1, bkgFileName, str(seed), str(nsim), outfile2, outfile_lod, args.outPrefix, str(rpb), str(args.minAltUMI)])
    subprocess.check_call(pValCmd, shell=True)
+   print("Completed calculating p-values at " + str(datetime.datetime.now()) + "\n")
 
    # make VCFs
    vcfCmd = ' '.join(['python', vcfCode, args.runPath, outfile2, args.outPrefix])
@@ -1015,8 +1016,8 @@ def main(args):
 
    # log run completion
    timeEnd = datetime.datetime.now()
-   print("completed running at " + str(timeEnd) + "\n")
-   print("total time: "+ str(timeEnd-timeStart) + "\n")  
+   print("Completed at " + str(timeEnd) + "\n")
+   print("Total time: "+ str(timeEnd-timeStart) + "\n")  
    
 #pythonism to run from the command line
 #----------------------------------------------------------------------------------------------

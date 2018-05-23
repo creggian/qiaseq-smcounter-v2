@@ -9,21 +9,30 @@ rm(list=ls())
 library(plyr)
 bkgErrorDistSimulation <- '/srv/qgen/data/annotation/bkg.error.v2.RData'
 
+##############################
+##       Parameters         ##
+##############################
 args <- commandArgs(TRUE)
 wd <- args[1]
 outlong <- args[2]
 bkgfile <- args[3]
 seed <- as.numeric(args[4])
 nsim <- as.numeric(args[5])
-outfile <- args[6]
-rpb <- as.numeric(args[7])
-minAltUMI <- as.numeric(args[8])
+outfile_pval <- args[6]
+outfile_bedgraph <- args[7]
+outprefix <- args[8]
+rpb <- as.numeric(args[9])
+minAltUMI <- as.numeric(args[10])
 min.mtDepth <- 1000
 
 # set working directory
 setwd(wd)
 set.seed(seed)
 
+##############################################
+########          Function            ########
+########         Definitions          ########
+##############################################
 # function to calculate standard deviation
 beta.sd <- function(a,b) sqrt(a*b) / ((a+b) * sqrt(a+b+1))
 # function to estimate a
@@ -47,7 +56,98 @@ calc.pval <- function(TYPE, REF, ALT, sForUMT, sRevUMT, sForVMT, sRevVMT, p.high
   }
   return(pval)
 }
+# function to find p-value
+pval <- function(n, x, p){
+#       @param int    n    :   The UMI depth at a particular site
+#       @param float  x    :   Number of variant UMIs at that site
+#       @param vector p    :   Vector of values simulated from the \
+#                              background error distribution of transitions 
 
+  if(x >= 3){
+    tmp <- pbinom(q=x-1, size=n, prob=p, lower.tail=F)
+    pval <- ifelse(n==0, 1, mean(tmp, na.rm=T))
+  } else{
+    pval <- NA
+  }
+  return(pval)
+}
+# function to find the LOD
+lod <- function(n){
+#      @param   int n : The UMI depth to calculate the lod for
+
+  # high lod
+  low <- 3
+  up <- n
+  x.high <- max(3, round(0.005 * n))
+  while(up - low > 1){  
+    p <- pval(n, x.high, p.high)
+    if(p >= 1e-6){
+      low <- x.high
+      x.high <- ceiling(mean(c(x.high, up)))
+    } else{
+      up <- x.high
+      x.high <- floor(mean(c(x.high, low)))
+    }
+  }
+  lod.high <- x.high / n
+
+  return(lod.high)
+}
+# function to collapse same value(lod/coverage) columns
+# and write a bedgraph file
+output_bedgraph <- function(df,outfile,header,val_col="foo"){
+#                  @param dataframe df      : The input dataframe to iterate over
+#                  @param string    val_col : The column name of the value in the bedgraph
+#                  @param string    outfile : The output file path
+#                  @param string    header  : The header for the bedgraph file
+
+   file_handle <- file(outfile,"w")
+   cat(header,file=file_handle)
+   prev_val <- NULL
+   test <- c("lod","sumt")
+   for (row in 1:nrow(df)) {
+      val <- df[row,val_col]
+      chr <- df[row, "chr"]
+      pos <- df[row, "pos"]
+      if (is.null(prev_val)) {
+	 prev_val <- val
+	 prev_chr <- chr
+	 prev_pos <- pos
+	 init_pos <- pos
+	 next # skip first iteration of loop
+      }
+      else {
+	 if (prev_chr != chr) {
+	    out <- sprintf("%s\t%i\t%i\t%f\n",prev_chr,init_pos-1,prev_pos,prev_val)
+            out <- paste(prev_chr,"\t",init_pos-1,"\t",prev_pos,"\t",round(prev_val,5),"\n")
+            cat(out,file=file_handle)
+	    init_pos <- pos
+	 }
+	 else if (prev_val != val) {
+	    out <- sprintf("%s\t%i\t%i\t%f\n",prev_chr,init_pos-1,prev_pos,prev_val)
+            out <- paste(prev_chr,"\t",init_pos-1,"\t",prev_pos,"\t",round(prev_val,5),"\n")
+            cat(out,file=file_handle)
+	    init_pos <- pos
+	 }
+	 prev_val <- val
+	 prev_chr <- chr
+	 prev_pos <- pos
+      }
+   }
+   # finish out last line of the file
+   out = sprintf("%s\t%i\t%i\t%f\n",prev_chr,init_pos-1,prev_pos,prev_val)
+   out <- paste(prev_chr,"\t",init_pos-1,"\t",prev_pos,"\t",round(prev_val,3),"\n")
+   cat(out,file=file_handle)
+   close(file_handle)
+}
+################ END OF FUNCTIONS #####################
+
+
+#########################################################
+########       Begin imperative computations     ########
+########                  And                    ########
+########         Writing out output files        ########
+#########################################################
 # define constants
 cols <- c('chrom', 'pos', 'ref', 'AG', 'GA', 'CT', 'TC', 'AC', 'AT', 'CA', 'CG', 'GC', 'GT', 'TA', 'TG', 'neg.strand', 'pos.strand', 'all.smt')
 out <- NULL
@@ -108,17 +208,34 @@ if(is.na(mu.high) | is.na(n.high) | n.high < 100) {
    b.high <- calc.b(mu.high, sigma.high)
    p.high <- rbeta(n=nsim, shape1=a.high, shape2=b.high)
 }
-
 p.low <- c(rbeta(n=nsim-n0.low, shape1=a.ct.orig, shape2=b.ct.orig), rep(0, n0.low))
+
+# compute limit of detection (lod)  for binned sUMT values 
+# this is the lowest allele fraction variant which can be called for a given UMI depth at a site
+bin_width = 10
+all_sUMT_bin_vals <- seq(from = min(dat$sUMT), to = min(10000,max(dat$sUMT)), by = bin_width)
+all_sUMT_bins <- seq(from=1,to=length(all_sUMT_bin_vals),by=1)
+binned_lod_vals <- sapply(all_sUMT_bin_vals, lod)
+lod_for_sUMT <- binned_lod_vals[floor((dat$sUMT - min(dat$sUMT) + bin_width)/bin_width)]
+# write lod bedgraph file
+lod_df <- data.frame(chr=dat$CHROM,pos=dat$POS,lod=lod_for_sUMT)
+header <- sprintf("track type=bedGraph name='%s.lod'\n",outprefix)
+outfile <- sprintf("%s.umi_depths.lod.bedgraph",outprefix)
+output_bedgraph(lod_df,outfile,header,"lod")
+# write sUMT bedgraph file
+sumt_df <- data.frame(chr=dat$CHROM,pos=dat$POS,sumt=dat$sUMT)
+header <- sprintf("track type=bedGraph name='%s.umi_depths.variant-calling-input'\n",outprefix)
+outfile <- sprintf("%s.umi_depths.variant-calling-input.bedgraph",outprefix)
+output_bedgraph(sumt_df,outfile,header,"sumt")
 
 # compute p-values
 dat$sForUMT <- as.numeric(dat$sForUMT)
 dat$sRevUMT <- as.numeric(dat$sRevUMT)
 dat$sForVMT <- as.numeric(dat$sForVMT)
 dat$sRevVMT <- as.numeric(dat$sRevVMT)
-
 tmp <- subset(dat, select=c(TYPE, REF, ALT, sForUMT, sForVMT, sRevUMT, sRevVMT))
 pval <- mdply(tmp, calc.pval, p.high.final=p.high, p.low.final=p.low)
+
 # set mininum at 1e-200 to avoid log(0)
 raw.pval <- pmax(1e-200, pval$V1)
 # take -log10
@@ -126,6 +243,6 @@ dat$logpval <- round(-log10(raw.pval), 2)
 
 # save to disk
 dat <- subset(dat, select=c(CHROM, POS, REF, ALT, TYPE, sUMT, sForUMT, sRevUMT, sVMT, sForVMT, sRevVMT, sVMF, sForVMF, sRevVMF, VDP, VAF, RefForPrimer, RefRevPrimer, primerOR, pLowQ, hqUmiEff, allUmiEff, refMeanRpb, altMeanRpb, rpbEffectSize, repType, hpInfo, simpleRepeatInfo, tandemRepeatInfo, DP, FR, MT, UFR, sUMT_A, sUMT_T, sUMT_G, sUMT_C, logpval, FILTER))
-write.table(dat, outfile, sep='\t', row.names=F, col.names=T, quote=F)
+write.table(dat, outfile_pval, sep='\t', row.names=F, col.names=T, quote=F)
 
 

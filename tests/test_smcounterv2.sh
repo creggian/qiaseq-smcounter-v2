@@ -1,5 +1,5 @@
 #!/bin/bash
-
+set -e
 codedir=$1
 
 python $codedir/sm_counter_v2.py --runPath /home/qiauser/test_v2/ --bamFile /srv/qgen/test_smcounter-v2/NB956-240-3-10_S1.highconfidence.bam \
