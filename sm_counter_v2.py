@@ -317,25 +317,6 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
          if dropRead:
             continue
 
-         # mapping quality filter
-         mq = pileupRead.alignment.mapping_quality
-         # get mapq of mate
-         try:
-            mateMq = pileupRead.alignment.get_tag("MQ")
-            minFragMQ = min(mq,mate_mq)
-            if minFragMQ < minMQ:
-               continue
-         except KeyError: 
-            '''
-            bam has not been tagged with the mate mapq,
-            drop read pairs based on their respective mapqs only
-            To note :
-            warn user ? or make command line argument more descriptive
-            settling on a more descriptive argument for now
-            '''
-            if mq < minMQ:
-               continue
-
          # read ID
          qname = pileupRead.alignment.query_name
          readid = qname
@@ -384,6 +365,27 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
          # +/- strand
          strand = 'Reverse' if pileupRead.alignment.is_reverse else 'Forward'
 
+         # mapping quality filter
+         mq = pileupRead.alignment.mapping_quality
+         minMQPass = True
+         # get mapq of mate
+         try:
+            mateMq = pileupRead.alignment.get_tag("MQ")
+            minFragMQ = min(mq,mate_mq)
+            if minFragMQ < minMQ:
+               minMQPass = False
+         except KeyError: 
+            '''
+            bam has not been tagged with the mate mapq,
+            drop read pairs based on their respective mapqs only
+            To note :
+            warn user ? or make command line argument more descriptive
+            settling on a more descriptive argument for now
+            '''
+            if mq < minMQ:
+               minMQPass = False
+
+
          # repetitive region information
          if hpInfo == '.':
             hpCovered = True
@@ -424,7 +426,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
          else: 
             base = pileupRead.alignment.query_sequence[pileupRead.query_position] # note: query_sequence includes soft clipped bases
             bq = pileupRead.alignment.query_qualities[pileupRead.query_position]
-            incCond = bq >= minBQ and mismatchPer100b <= mismatchThr and hpCovered
+            incCond = bq >= minBQ and minMQPass and mismatchPer100b <= mismatchThr and hpCovered
             # count the number of low quality reads (less than Q20 by default) for each base
             if bq < 20:   # why not minBQ???!!!
                lowQReads[base] += 1
@@ -464,7 +466,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
             allBcDict[BC].add(readid)
 
          # inclusion condition. NOTE: reads with duplex tag 'NN' are dropped from analysis
-         incCond = bq >= minBQ and mismatchPer100b <= mismatchThr and hpCovered
+         incCond = bq >= minBQ and minMQPass and mismatchPer100b <= mismatchThr and hpCovered
 
          # constructing UMI family; this one with high quality reads only
          if incCond:
