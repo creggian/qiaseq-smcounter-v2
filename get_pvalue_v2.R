@@ -217,7 +217,7 @@ p.low <- c(rbeta(n=nsim-n0.low, shape1=a.ct.orig, shape2=b.ct.orig), rep(0, n0.l
 bin_width = 10
 all_sUMT_bin_vals <- seq(from = min(dat$sUMT), to = min(10000,max(dat$sUMT)), by = bin_width)
 all_sUMT_bins <- seq(from=1,to=length(all_sUMT_bin_vals),by=1)
-binned_lod_vals <- sapply(all_sUMT_bin_vals, calc_lod)
+binned_lod_vals <- sapply(all_sUMT_bin_vals, calc_lod, p.high=p.high)
 lod_for_sUMT <- binned_lod_vals[floor((dat$sUMT - min(dat$sUMT) + bin_width)/bin_width)]
 # write lod bedgraph file
 lod_df <- data.frame(chr=dat$CHROM,pos=dat$POS,lod=lod_for_sUMT)
