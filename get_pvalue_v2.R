@@ -60,7 +60,7 @@ calc.pval <- function(TYPE, REF, ALT, sForUMT, sRevUMT, sForVMT, sRevVMT, p.high
 pval <- function(n, x, p){
 #       @param int    n    :   The UMI depth at a particular site
 #       @param float  x    :   Number of variant UMIs at that site
-#       @param vector p    :   Vector of values simulated from the \
+#       @param vector p    :   Vector of values simulated from the
 #                              background error distribution of transitions 
 
   if(x >= 3){
@@ -72,8 +72,10 @@ pval <- function(n, x, p){
   return(pval)
 }
 # function to find the LOD
-lod <- function(n){
-#      @param   int n : The UMI depth to calculate the lod for
+calc_lod <- function(n,p.high){
+#      @param   int n        : The UMI depth to calculate the lod for
+#      @param   float p.high : Vector of values simulated from the
+#                              background error distribution of transitions
 
   # high lod
   low <- 3
@@ -215,13 +217,15 @@ p.low <- c(rbeta(n=nsim-n0.low, shape1=a.ct.orig, shape2=b.ct.orig), rep(0, n0.l
 bin_width = 10
 all_sUMT_bin_vals <- seq(from = min(dat$sUMT), to = min(10000,max(dat$sUMT)), by = bin_width)
 all_sUMT_bins <- seq(from=1,to=length(all_sUMT_bin_vals),by=1)
-binned_lod_vals <- sapply(all_sUMT_bin_vals, lod)
+binned_lod_vals <- sapply(all_sUMT_bin_vals, calc_lod)
 lod_for_sUMT <- binned_lod_vals[floor((dat$sUMT - min(dat$sUMT) + bin_width)/bin_width)]
 # write lod bedgraph file
 lod_df <- data.frame(chr=dat$CHROM,pos=dat$POS,lod=lod_for_sUMT)
 header <- sprintf("track type=bedGraph name='%s.lod'\n",outprefix)
 outfile <- sprintf("%s.umi_depths.lod.bedgraph",outprefix)
 output_bedgraph(lod_df,outfile,header,"lod")
+lod.quantiles <- quantile(dat$lod,probs=c(0.01,0.05,0.10,0.50,0.90,0.95,0.99))
+write.table(lod.quantiles, paste(outfile,".quantiles.txt",sep=""), sep='|', row.names=T, col.names=F, quote=F)
 # write sUMT bedgraph file
 sumt_df <- data.frame(chr=dat$CHROM,pos=dat$POS,sumt=dat$sUMT)
 header <- sprintf("track type=bedGraph name='%s.umi_depths.variant-calling-input'\n",outprefix)
