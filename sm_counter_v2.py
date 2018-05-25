@@ -35,8 +35,6 @@ primerTag = "pr"
 
 _num_cols_ = 38 ## Number of columns in out_long returned by the vc() function of smCounter
 
-
-
 # wrapper function for "vc()" - because Python multiprocessing module does not pass stack trace
 # from runone/smcounter.py by John Dicarlo
 #------------------------------------------------------------------------------------------------
@@ -317,14 +315,13 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
                
          # check if should drop read
          if dropRead:
-            continue                       
-         
+            continue
+
          # read ID
          qname = pileupRead.alignment.query_name
          readid = qname
          BC = pileupRead.alignment.get_tag(mtTag)
-         # mapping quality
-         mq = pileupRead.alignment.mapping_quality
+
          # read start and end coordinates in reference genome
          astart = pileupRead.alignment.reference_start
          aend = pileupRead.alignment.reference_end
@@ -368,6 +365,27 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
          # +/- strand
          strand = 'Reverse' if pileupRead.alignment.is_reverse else 'Forward'
 
+         # mapping quality filter
+         mq = pileupRead.alignment.mapping_quality
+         minMQPass = True
+         # get mapq of mate
+         try:
+            mateMq = pileupRead.alignment.get_tag("MQ")
+            minFragMQ = min(mq,mate_mq)
+            if minFragMQ < minMQ:
+               minMQPass = False
+         except KeyError: 
+            '''
+            bam has not been tagged with the mate mapq,
+            drop read pairs based on their respective mapqs only
+            To note :
+            warn user ? or make command line argument more descriptive
+            settling on a more descriptive argument for now
+            '''
+            if mq < minMQ:
+               minMQPass = False
+
+
          # repetitive region information
          if hpInfo == '.':
             hpCovered = True
@@ -408,7 +426,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
          else: 
             base = pileupRead.alignment.query_sequence[pileupRead.query_position] # note: query_sequence includes soft clipped bases
             bq = pileupRead.alignment.query_qualities[pileupRead.query_position]
-            incCond = bq >= minBQ and mq >= minMQ and mismatchPer100b <= mismatchThr and hpCovered
+            incCond = bq >= minBQ and minMQPass and mismatchPer100b <= mismatchThr and hpCovered
             # count the number of low quality reads (less than Q20 by default) for each base
             if bq < 20:   # why not minBQ???!!!
                lowQReads[base] += 1
@@ -448,7 +466,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
             allBcDict[BC].add(readid)
 
          # inclusion condition. NOTE: reads with duplex tag 'NN' are dropped from analysis
-         incCond = bq >= minBQ and mq >= minMQ and mismatchPer100b <= mismatchThr and hpCovered
+         incCond = bq >= minBQ and minMQPass and mismatchPer100b <= mismatchThr and hpCovered
 
          # constructing UMI family; this one with high quality reads only
          if incCond:
@@ -808,7 +826,7 @@ def argParseInit():  # this is done inside a function because multiprocessing mo
    parser.add_argument('--outPrefix', default=None, help='file name prefix')
    parser.add_argument('--nCPU', type=int, default=1, help='number of CPU to use in parallel')
    parser.add_argument('--minBQ', type=int, default=25, help='minimum base quality allowed for analysis')
-   parser.add_argument('--minMQ', type=int, default=50, help='minimum mapping quality allowed for analysis')
+   parser.add_argument('--minMQ', type=int, default=50, help="minimum mapping quality allowed for analysis. If the bam is tagged with its mate's mapq, then the minimum of the R1 and R2 mapq will be used for comparison, if not each read is compared independently.")
    parser.add_argument('--hpLen', type=int, default=10, help='Minimum length for homopolymers')
    parser.add_argument('--mismatchThr', type=float, default=6.0, help='average number of mismatches per 100 bases allowed')
    parser.add_argument('--primerDist', type=int, default=2, help='filter variants that are within X bases to primer')
@@ -828,7 +846,7 @@ def argParseInit():  # this is done inside a function because multiprocessing mo
 def main(args):
    # log run start
    timeStart = datetime.datetime.now()
-   print("Started at " + str(timeStart))
+   print("started at " + str(timeStart))
    
    # if argument parser global not assigned yet, initialize it
    if parser == None:
@@ -995,14 +1013,14 @@ def main(args):
    outfile_bkg.close()
 
    # calculate p-value
-   print("Started calculating p-values at " + str(datetime.datetime.now()) + "\n")
+   print("Calculating p-values at " + str(datetime.datetime.now()) + "\n")
    outfile1 = 'intermediate/nopval.' + args.outPrefix + '.VariantList.long.txt'
 
    outfile2 = 'intermediate/' + args.outPrefix + '.VariantList.long.txt'
    outfile_lod = 'intermediate/' + args.outPrefix + '.umi_depths.lod.bedgraph'
    pValCmd = ' '.join(['Rscript', pValCode, args.runPath, outfile1, bkgFileName, str(seed), str(nsim), outfile2, outfile_lod, args.outPrefix, str(rpb), str(args.minAltUMI)])
    subprocess.check_call(pValCmd, shell=True)
-   print("Completed calculating p-values at " + str(datetime.datetime.now()) + "\n")
+   print("completed p-values at " + str(datetime.datetime.now()) + "\n")
 
    # make VCFs
    vcfCmd = ' '.join(['python', vcfCode, args.runPath, outfile2, args.outPrefix])
@@ -1016,8 +1034,8 @@ def main(args):
 
    # log run completion
    timeEnd = datetime.datetime.now()
-   print("Completed at " + str(timeEnd) + "\n")
-   print("Total time: "+ str(timeEnd-timeStart) + "\n")  
+   print("completed running at " + str(timeEnd) + "\n")
+   print("total time: "+ str(timeEnd-timeStart) + "\n")  
    
 #pythonism to run from the command line
 #----------------------------------------------------------------------------------------------
