@@ -464,7 +464,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
             allBcDict[BC].add(readid)
 
          # inclusion condition. NOTE: reads with duplex tag 'NN' are dropped from analysis
-         incCond = bq >= minBQ and mq >= minMQ and mismatchPer100b <= mismatchThr and hpCovered
+         incCond = bq >= minBQ and mismatchPer100b <= mismatchThr and hpCovered
 
          # constructing UMI family; this one with high quality reads only
          if incCond:
