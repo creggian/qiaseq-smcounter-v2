@@ -371,7 +371,7 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
          # get mapq of mate
          try:
             mateMq = pileupRead.alignment.get_tag("MQ")
-            minFragMQ = min(mq,mate_mq)
+            minFragMQ = min(mq,mateMq)
             if minFragMQ < minMQ:
                minMQPass = False
          except KeyError: 
@@ -384,7 +384,6 @@ def vc(bamName, chrom, pos, repType, hpInfo, srInfo, repInfo, minBQ, minMQ, hpLe
             '''
             if mq < minMQ:
                minMQPass = False
-
 
          # repetitive region information
          if hpInfo == '.':
