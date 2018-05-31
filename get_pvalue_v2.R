@@ -221,8 +221,8 @@ binned_lod_vals <- sapply(all_sUMT_bin_vals, calc_lod, p.high=p.high)
 lod_for_sUMT <- binned_lod_vals[floor((dat$sUMT - min(dat$sUMT) + bin_width)/bin_width)]
 # write lod bedgraph file
 lod_df <- data.frame(chr=dat$CHROM,pos=dat$POS,lod=lod_for_sUMT)
-header <- sprintf("track type=bedGraph name='%s.lod'\n",outprefix)
-outfile <- sprintf("%s.umi_depths.lod.bedgraph",outprefix)
+header <- sprintf("track type=bedGraph name='%s.variant-calling-lod'\n",outprefix)
+outfile <- sprintf("%s.umi_depths.variant-calling-lod.bedgraph",outprefix)
 output_bedgraph(lod_df,outfile,header,"lod")
 lod.quantiles <- quantile(lod_df$lod,probs=c(0.01,0.05,0.10,0.50,0.90,0.95,0.99))
 write.table(lod.quantiles, paste(outfile,".quantiles.txt",sep=""), sep='|', row.names=T, col.names=F, quote=F)
