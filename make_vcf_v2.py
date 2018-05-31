@@ -147,7 +147,7 @@ def main(runPath, outlong, sampleName):
    outLowPi = open(sampleName + '.smCounter.lowQ.txt','w')
    
    cutoff = 6
-   minCutoff = {'INDEL': 2.5,'SNP':5} ## Cutoff for the low-PI file
+   minCutoff = {'INDEL': 2,'SNP':2} ## Cutoff for the low-PI file
 
    
    ID = '.'
