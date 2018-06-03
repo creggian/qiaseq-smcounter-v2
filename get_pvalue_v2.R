@@ -93,6 +93,11 @@ calc_lod <- function(n,p.high){
   }
   lod.high <- x.high / n
 
+  if(is.na(lod.high)){
+    print(n)
+    print(p.high)
+    print(lod.high)
+  }
   return(lod.high)
 }
 # function to collapse same value(lod/coverage) columns
@@ -215,7 +220,17 @@ bin_width = 10
 all_sUMT_bin_vals <- seq(from = min(dat$sUMT), to = min(10000,max(dat$sUMT)), by = bin_width)
 all_sUMT_bins <- seq(from=1,to=length(all_sUMT_bin_vals),by=1)
 binned_lod_vals <- sapply(all_sUMT_bin_vals, calc_lod, p.high=p.high)
-lod_for_sUMT <- binned_lod_vals[floor((dat$sUMT - min(dat$sUMT) + bin_width)/bin_width)]
+max_bin <- length(all_sUMT_bin_vals)
+
+get_bin_indices <- function(sumt,max_bin){
+  if(sumt > 10000) {
+    return (max_bin)
+  }
+  else {
+    return (floor((sumt - min(dat$sUMT) + bin_width)/bin_width))
+  }
+}
+lod_for_sUMT <- binned_lod_vals[sapply(dat$sUMT,get_bin_indices,max_bin=max_bin)]
 # write lod bedgraph file
 lod_df <- data.frame(chr=dat$CHROM,pos=dat$POS,lod=lod_for_sUMT)
 header <- sprintf("track type=bedGraph name='%s.variant-calling-lod'\n",outprefix)
