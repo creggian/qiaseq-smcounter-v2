@@ -33,10 +33,11 @@ def assign_ad(uumi,vumi):
    for downstream tools
    :param uumi (str) total umis at the variant site
    :param vumi (str) umis corresponding to the non-reference allele(s) at the variant site (comma seperated for multi-allelic sites)
-   '''
+   '''    
    vumis = vumi.split(',')   
+   refumi = int(uumi)
    for umi in vumis:
-      refumi = int(uumi) - int(umi)
+      refumi = refumi - int(umi)
    refumi = str(refumi)
    ad = refumi + ',' + ','.join(vumis)
    return ad 
