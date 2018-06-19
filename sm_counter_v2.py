@@ -82,7 +82,7 @@ def getMeanRpb(bamName):
    totalMT = len(allBcSet)
    # mean rpb
    meanRpb = float(totalFrag) / totalMT
-
+   samfile.close()
    return meanRpb
 
 #-------------------------------------------------------------------------------------
@@ -969,7 +969,7 @@ def main(args):
       rpb = -1
    else:
       if args.rpb == 0.0:
-         rpb = getMeanRpb(args.bamFile, args.isRna) 
+         rpb = getMeanRpb(args.bamFile) 
          print("rpb = " + str(round(rpb,1)) + ", computed by smCounter")
       else:
          rpb = args.rpb
