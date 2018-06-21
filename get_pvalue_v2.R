@@ -60,7 +60,7 @@ calc.pval <- function(TYPE, REF, ALT, sForUMT, sRevUMT, sForVMT, sRevVMT, p.high
 pval <- function(n, x, p){
 #       @param int    n    :   The UMI depth at a particular site
 #       @param float  x    :   Number of variant UMIs at that site
-#       @param vector p    :   Vector of values simulated from the \
+#       @param vector p    :   Vector of values simulated from the
 #                              background error distribution of transitions 
 
   if(x >= 3){
@@ -72,8 +72,10 @@ pval <- function(n, x, p){
   return(pval)
 }
 # function to find the LOD
-lod <- function(n){
-#      @param   int n : The UMI depth to calculate the lod for
+calc_lod <- function(n,p.high){
+#      @param   int n        : The UMI depth to calculate the lod for
+#      @param   float p.high : Vector of values simulated from the
+#                              background error distribution of transitions
 
   # high lod
   low <- 3
@@ -91,6 +93,11 @@ lod <- function(n){
   }
   lod.high <- x.high / n
 
+  if(is.na(lod.high)){
+    print(n)
+    print(p.high)
+    print(lod.high)
+  }
   return(lod.high)
 }
 # function to collapse same value(lod/coverage) columns
@@ -118,14 +125,12 @@ output_bedgraph <- function(df,outfile,header,val_col="foo"){
       }
       else {
 	 if (prev_chr != chr) {
-	    out <- sprintf("%s\t%i\t%i\t%f\n",prev_chr,init_pos-1,prev_pos,prev_val)
-            out <- paste(prev_chr,"\t",init_pos-1,"\t",prev_pos,"\t",round(prev_val,5),"\n")
+            out <- paste(prev_chr,"\t",as.integer(init_pos-1),"\t",as.integer(prev_pos),"\t",round(prev_val,5),"\n",sep="")
             cat(out,file=file_handle)
 	    init_pos <- pos
 	 }
-	 else if (prev_val != val) {
-	    out <- sprintf("%s\t%i\t%i\t%f\n",prev_chr,init_pos-1,prev_pos,prev_val)
-            out <- paste(prev_chr,"\t",init_pos-1,"\t",prev_pos,"\t",round(prev_val,5),"\n")
+	 else if (prev_val != val) {	    
+            out <- paste(prev_chr,"\t",as.integer(init_pos-1),"\t",as.integer(prev_pos),"\t",round(prev_val,5),"\n",sep="")
             cat(out,file=file_handle)
 	    init_pos <- pos
 	 }
@@ -135,8 +140,7 @@ output_bedgraph <- function(df,outfile,header,val_col="foo"){
       }
    }
    # finish out last line of the file
-   out = sprintf("%s\t%i\t%i\t%f\n",prev_chr,init_pos-1,prev_pos,prev_val)
-   out <- paste(prev_chr,"\t",init_pos-1,"\t",prev_pos,"\t",round(prev_val,3),"\n")
+   out <- paste(prev_chr,"\t",as.integer(init_pos-1),"\t",as.integer(prev_pos),"\t",round(prev_val,3),"\n",sep="")
    cat(out,file=file_handle)
    close(file_handle)
 }
@@ -215,13 +219,25 @@ p.low <- c(rbeta(n=nsim-n0.low, shape1=a.ct.orig, shape2=b.ct.orig), rep(0, n0.l
 bin_width = 10
 all_sUMT_bin_vals <- seq(from = min(dat$sUMT), to = min(10000,max(dat$sUMT)), by = bin_width)
 all_sUMT_bins <- seq(from=1,to=length(all_sUMT_bin_vals),by=1)
-binned_lod_vals <- sapply(all_sUMT_bin_vals, lod)
-lod_for_sUMT <- binned_lod_vals[floor((dat$sUMT - min(dat$sUMT) + bin_width)/bin_width)]
+binned_lod_vals <- sapply(all_sUMT_bin_vals, calc_lod, p.high=p.high)
+max_bin <- length(all_sUMT_bin_vals)
+
+get_bin_indices <- function(sumt,max_bin){
+  if(sumt > 10000) {
+    return (max_bin)
+  }
+  else {
+    return (floor((sumt - min(dat$sUMT) + bin_width)/bin_width))
+  }
+}
+lod_for_sUMT <- binned_lod_vals[sapply(dat$sUMT,get_bin_indices,max_bin=max_bin)]
 # write lod bedgraph file
 lod_df <- data.frame(chr=dat$CHROM,pos=dat$POS,lod=lod_for_sUMT)
-header <- sprintf("track type=bedGraph name='%s.lod'\n",outprefix)
-outfile <- sprintf("%s.umi_depths.lod.bedgraph",outprefix)
+header <- sprintf("track type=bedGraph name='%s.variant-calling-lod'\n",outprefix)
+outfile <- sprintf("%s.umi_depths.variant-calling-lod.bedgraph",outprefix)
 output_bedgraph(lod_df,outfile,header,"lod")
+lod.quantiles <- quantile(lod_df$lod,probs=c(0.01,0.05,0.10,0.50,0.90,0.95,0.99))
+write.table(lod.quantiles, paste(outfile,".quantiles.txt",sep=""), sep='|', row.names=T, col.names=F, quote=F)
 # write sUMT bedgraph file
 sumt_df <- data.frame(chr=dat$CHROM,pos=dat$POS,sumt=dat$sUMT)
 header <- sprintf("track type=bedGraph name='%s.umi_depths.variant-calling-input'\n",outprefix)
