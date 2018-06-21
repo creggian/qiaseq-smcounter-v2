@@ -7,7 +7,7 @@
 
 rm(list=ls())
 library(plyr)
-bkgErrorDistSimulation <- '/srv/qgen/data/annotation/bkg.error.v2.RData'
+bkgErrorDistSimulation <- '/u/creggian/programmi/smcounter-v2-paper/background_error_profile/bkg.error.v2.4.RData'
 
 ##############################
 ##       Parameters         ##
@@ -158,9 +158,9 @@ dat <- read.delim(outlong, header=T, stringsAsFactors=F)
 # read in prior information
 load(bkgErrorDistSimulation)
 if(rpb >= 3.0){
-  top4 <- bkg.error$top4.exclude.1rpUMI
+  top4 <- bkg.error$parameters.exclude_1rpUMI
 } else{
-  top4 <- bkg.error$top4.include.1rpUMI
+  top4 <- bkg.error$parameters.include_1rpUMI
 }
 
 a.ga.orig <- top4$shape1[2]
@@ -171,8 +171,8 @@ a.ct.orig <- top4$shape1[3]
 b.ct.orig <- top4$shape2[3]
 
 # proportion of zeros
-p0.high <- top4$p0[2]
-p0.low <- top4$p0[3]
+p0.high <- top4$x0[2]
+p0.low <- top4$x0[3]
 n0.high <- floor(nsim * p0.high)
 n0.low <- floor(nsim * p0.low)
 

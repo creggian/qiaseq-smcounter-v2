@@ -29,7 +29,7 @@ seed = 10262016
 nsim = 5000
 minTotalUMI = 5
 
-mtTag = "Mi"
+mtTag = "MI"
 tagSeparator = "-"
 primerTag = "pr"
 
@@ -818,7 +818,7 @@ def argParseInit():  # this is done inside a function because multiprocessing mo
    parser.add_argument('--primerSide', type=int, default=1, help='read end that includes the primer; default is 1')
    parser.add_argument('--minAltUMI', type=int, default=3, help='minimum requirement of ALT UMIs; default is 3')
    parser.add_argument('--maxAltAllele', type=int, default=2, help='maximum ALT alleles that meet minAltUMI to be reported; default is 2 (tri-allelic variants)')
-   parser.add_argument('--refGenome',type=str,help='Path to the reference fasta file')
+   parser.add_argument('--refGenome',type=str, help='Path to the reference fasta file')
    parser.add_argument('--repBed',type=str,help='Path to the simpleRepeat bed file')
    parser.add_argument('--srBed',type=str,help='Path to the full repeat bed file')
 
@@ -852,9 +852,9 @@ def main(args):
       os.makedirs('intermediate')
 
    # intersect repeats and target regions   
-   subprocess.check_call('python ' + homopolymerCode + ' ' + args.bedTarget + ' hp.roi.bed 6' + ' ' + args.refGenome , shell=True)
-   subprocess.check_call('bedtools intersect -a ' + args.repBed + ' -b ' + args.bedTarget + ' | bedtools sort -i > rep.roi.bed', shell=True)
-   subprocess.check_call('bedtools intersect -a ' + args.srBed +  ' -b ' + args.bedTarget + ' | bedtools sort -i > sr.roi.bed', shell=True)
+   subprocess.check_call('/u/creggian/programmi/python-2.7.2/bin/python ' + homopolymerCode + ' ' + args.bedTarget + ' hp.roi.bed 6' + ' ' + args.refGenome , shell=True)
+   subprocess.check_call('/u/creggian/programmi/bedtools2/bin/bedtools intersect -a ' + args.repBed + ' -b ' + args.bedTarget + ' | bedtools sort -i > rep.roi.bed', shell=True)
+   subprocess.check_call('/u/creggian/programmi/bedtools2/bin/bedtools intersect -a ' + args.srBed +  ' -b ' + args.bedTarget + ' | bedtools sort -i > sr.roi.bed', shell=True)
 
    # homopolymer 
    hpRegion = defaultdict(list)
@@ -952,7 +952,7 @@ def main(args):
       rpb = -1
    else:
       if args.rpb == 0.0:
-         rpb = getMeanRpb(args.bamFile, args.isRna) 
+         rpb = getMeanRpb(args.bamFile) 
          print("rpb = " + str(round(rpb,1)) + ", computed by smCounter")
       else:
          rpb = args.rpb
@@ -1005,7 +1005,7 @@ def main(args):
    print("Completed calculating p-values at " + str(datetime.datetime.now()) + "\n")
 
    # make VCFs
-   vcfCmd = ' '.join(['python', vcfCode, args.runPath, outfile2, args.outPrefix])
+   vcfCmd = ' '.join(['/u/creggian/programmi/python-2.7.2/bin/python', vcfCode, args.runPath, outfile2, args.outPrefix])
    subprocess.check_call(vcfCmd, shell=True)
 
    # remove intermediate files
